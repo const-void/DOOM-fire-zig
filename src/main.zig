@@ -35,7 +35,7 @@ const stdin = std.io.getStdIn().reader();
 ///////////////////////////////////
 // do or do not - there is no try: catch unreachable instead of try on memory / file io
 //              - put all try to initXXX()
-// for (i=0; i<MAX; i++) { ... } => var i=0; while (i<MAX) { defer i+=1; ... }
+// for (i=0; i<MAX; i++) { ... } => var i=0; while (i<MAX) : (i+=1) { ... }
 
 ///////////////////////////////////
 // zig helpers
@@ -67,7 +67,7 @@ pub fn emit(s: []const u8) void {
 }
 
 // format a string then print
-pub fn emit_fmt(comptime s: []const u8, args: anytype) void {
+pub fn emitFmt(comptime s: []const u8, args: anytype) void {
     const t = std.fmt.allocPrint(allocator, s, args) catch unreachable;
     defer allocator.free(t);
     emit(t);
@@ -132,10 +132,9 @@ var bg: [MAX_COLOR][]u8 = undefined;
 // cache fg/bg ansi codes
 pub fn initColor() void {
     var color_idx: u16 = 0;
-    while (color_idx < MAX_COLOR) {
+    while (color_idx < MAX_COLOR) : (color_idx += 1) {
         fg[color_idx] = std.fmt.allocPrint(allocator, "{s}38;5;{d}m", .{ csi, color_idx }) catch unreachable;
         bg[color_idx] = std.fmt.allocPrint(allocator, "{s}48;5;{d}m", .{ csi, color_idx }) catch unreachable;
-        color_idx += 1;
     }
 }
 
@@ -222,11 +221,11 @@ pub fn checkTermSz() void {
 
         //check conditions
         if (w_ok and !h_ok) {
-            emit_fmt("Screen may be too short - height is {d} and need {d}.", .{ term_sz.height, min_h });
+            emitFmt("Screen may be too short - height is {d} and need {d}.", .{ term_sz.height, min_h });
         } else if (!w_ok and h_ok) {
-            emit_fmt("Screen may be too narrow - width is {d} and need {d}.", .{ term_sz.width, min_w });
+            emitFmt("Screen may be too narrow - width is {d} and need {d}.", .{ term_sz.width, min_w });
         } else {
-            emit_fmt("Screen is too small - have {d} x {d} and need {d} x {d}", .{ term_sz.width, term_sz.height, min_w, min_h });
+            emitFmt("Screen is too small - have {d} x {d} and need {d} x {d}", .{ term_sz.width, term_sz.height, min_w, min_h });
         }
 
         emit(nl);
@@ -250,7 +249,6 @@ pub fn checkTermSz() void {
     }
 }
 
-
 /// Part II - Show terminal capabilities
 /// 
 /// Since user terminals vary in capabilities, handy to have a screen that renders ACTUAL colors 
@@ -258,11 +256,11 @@ pub fn checkTermSz() void {
 ///
 pub fn showTermSz() void {
     //todo - show os, os ver, zig ver
-    emit_fmt("Screen size: {d}w x {d}h\n\n", .{ term_sz.width, term_sz.height });
+    emitFmt("Screen size: {d}w x {d}h\n\n", .{ term_sz.width, term_sz.height });
 }
 
 pub fn showLabel(label: []const u8) void {
-    emit_fmt("{s}{s}:\n", .{ color_def, label });
+    emitFmt("{s}{s}:\n", .{ color_def, label });
 }
 
 pub fn showStdColors() void {
@@ -271,25 +269,23 @@ pub fn showStdColors() void {
     //first 8 colors (standard)
     emit(fg[15]);
     var color_idx: u8 = 0;
-    while (color_idx < 8) {
-        defer color_idx += 1;
+    while (color_idx < 8) : (color_idx += 1) {
         emit(bg[color_idx]);
         if (color_idx == 7) {
             emit(fg[0]);
         }
-        emit_fmt("{u} {d:2}  ", .{ sep, color_idx });
+        emitFmt("{u} {d:2}  ", .{ sep, color_idx });
     }
     emit(nl);
 
     //next 8 colors ("hilight")
     emit(fg[15]);
-    while (color_idx < 16) {
-        defer color_idx += 1;
+    while (color_idx < 16) : (color_idx += 1) {
         emit(bg[color_idx]);
         if (color_idx == 15) {
             emit(fg[0]);
         }
-        emit_fmt("{u} {d:2}  ", .{ sep, color_idx });
+        emitFmt("{u} {d:2}  ", .{ sep, color_idx });
     }
 
     emit(nl);
@@ -307,15 +303,12 @@ pub fn show216Colors() void {
 
     // 6 rows of color
     var color_shift: u8 = 0;
-    while (color_shift < 6) {
-        defer color_shift += 1;
-
+    while (color_shift < 6) : (color_shift += 1) {
         color_addendum = color_shift * 36 + 16;
 
         // colors are pre-organized into blocks
         var color_idx: u8 = 0;
-        while (color_idx < 36) {
-            defer color_idx += 1;
+        while (color_idx < 36) : (color_idx += 1) {
             bg_idx = color_idx + color_addendum;
 
             // invert color id for readability
@@ -328,7 +321,7 @@ pub fn show216Colors() void {
             // display color
             emit(bg[bg_idx]);
             emit(fg[fg_idx]);
-            emit_fmt("{d:3}", .{bg_idx});
+            emitFmt("{d:3}", .{bg_idx});
         }
         emit(nl);
     }
@@ -342,16 +335,14 @@ pub fn showGrayscale() void {
     emit(fg[fg_idx]);
 
     var bg_idx: u16 = 232;
-    while (bg_idx < 256) {
-        defer bg_idx += 1;
-
+    while (bg_idx < 256) : (bg_idx += 1) {
         if (bg_idx > 243) {
             fg_idx = 0;
             emit(fg[fg_idx]);
         }
 
         emit(bg[bg_idx]);
-        emit_fmt("{u}{d} ", .{ sep, bg_idx });
+        emitFmt("{u}{d} ", .{ sep, bg_idx });
     }
     emit(nl);
 
@@ -382,14 +373,10 @@ pub fn scrollMarquee() void {
     var fade_idx: u8 = 0;
     var txt_idx: u8 = 0;
 
-    while (txt_idx < txt_len) {
-        defer txt_idx += 1;
-
+    while (txt_idx < txt_len) : (txt_idx += 1) {
         //fade in
         fade_idx = 0;
-        while (fade_idx < fade_len) {
-            defer fade_idx += 1;
-
+        while (fade_idx < fade_len) : (fade_idx += 1) {
             //reset to 1,1 of marquee
             emit(cursor_load);
             emit(bg[bg_idx]);
@@ -412,9 +399,7 @@ pub fn scrollMarquee() void {
 
         //fade out
         fade_idx = fade_len - 1;
-        while (fade_idx > 0) {
-            defer fade_idx -= 1;
-
+        while (fade_idx > 0) : (fade_idx -= 1) {
             //reset to 1,1 of marquee
             emit(cursor_load);
             emit(bg[bg_idx]);
@@ -518,7 +503,7 @@ pub fn paintBuf() void {
     fps = @intToFloat(f64, bs_frame_tic) / t_dur;
 
     emit(fg[0]);
-    emit_fmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max [ {d:.2} fps ]", .{ std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max), fps });
+    emitFmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max [ {d:.2} fps ]", .{ std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max), fps });
 }
 
 // initBuf(); defer freeBuf();
@@ -545,16 +530,13 @@ pub fn showDoomFire() void {
 
     //init buffer
     var buf_idx: u16 = 0;
-    while (buf_idx < FIRE_SZ) {
-        defer buf_idx += 1;
-
+    while (buf_idx < FIRE_SZ) : (buf_idx += 1) {
         screen_buf[buf_idx] = fire_black;
     }
 
     //last row is white...white is "fire source"
     buf_idx = 0;
-    while (buf_idx < FIRE_W) {
-        defer buf_idx += 1;
+    while (buf_idx < FIRE_W) : (buf_idx += 1) {
         screen_buf[FIRE_LAST_ROW + buf_idx] = fire_white;
     }
 
@@ -597,13 +579,9 @@ pub fn showDoomFire() void {
 
         //update fire buf
         doFire_x = 0;
-        while (doFire_x < FIRE_W) {
-            defer doFire_x += 1;
-
+        while (doFire_x < FIRE_W) : (doFire_x += 1) {
             doFire_y = 0;
-            while (doFire_y < FIRE_H) {
-                defer doFire_y += 1;
-
+            while (doFire_y < FIRE_H) : (doFire_y += 1) {
                 doFire_idx = doFire_y * FIRE_W + doFire_x;
 
                 //spread fire
@@ -630,14 +608,10 @@ pub fn showDoomFire() void {
 
         // for each row
         frame_y = 0;
-        while (frame_y < FIRE_H) {
-            defer frame_y += 2; // 'paint' two rows at a time because of half height char
-
+        while (frame_y < FIRE_H) : (frame_y += 2) { // 'paint' two rows at a time because of half height char
             // for each col
             frame_x = 0;
-            while (frame_x < FIRE_W) {
-                defer frame_x += 1;
-
+            while (frame_x < FIRE_W) : (frame_x += 1) {
                 //each character rendered is actually to rows of 'pixels'
                 // - "hi" (current px row => fg char)
                 // - "low" (next row => bg color)
