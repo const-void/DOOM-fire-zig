@@ -146,7 +146,7 @@ pub fn initColor() void {
 
 //get terminal size given a tty
 pub fn getTermSz(tty: std.os.fd_t) !TermSz {
-    var winsz = std.os.system.winsize{ .ws_col = 0, .ws_row = 0, .ws_xpixel = 0, .ws_ypixel = 0 };
+    var winsz = c.winsize{ .ws_col = 0, .ws_row = 0, .ws_xpixel = 0, .ws_ypixel = 0 };
     const rv = std.os.system.ioctl(tty, TIOCGWINSZ, @ptrToInt(&winsz));
     const err = std.os.errno(rv);
     if (rv == 0) {
