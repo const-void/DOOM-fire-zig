@@ -4,7 +4,9 @@
 // Copy/paste as it helps!
 //
 const std = @import("std");
-const allocator = std.heap.page_allocator;
+
+const allocator = std.heap.page_allocator; 
+
 const stdout = std.io.getStdOut().writer();
 const stdin = std.io.getStdIn().reader();
 
@@ -454,6 +456,11 @@ var bs_sz_min:u32=0;
 var bs_sz_max:u32=0;
 var bs_sz_avg:u32=0;
 var bs_frame_tic:u32=0;
+var t_start:i64=0;
+var t_now:i64=0;
+var t_dur:f64=0.0;
+var fps:f64=0.0;
+
 
 pub fn initBuf() void {  
     //some lazy guesswork to make sure we have enough of a buffer to render DOOM fire.
@@ -465,6 +472,7 @@ pub fn initBuf() void {
     const bs_sz:u64=screen_sz+overflow_sz;
 
     bs=allocator.alloc(u8,bs_sz*2) catch unreachable;
+    t_start=std.time.milliTimestamp();
     resetBuf();
 } 
 
@@ -486,6 +494,7 @@ pub fn drawBuf(s:[]const u8) void {
 //print buffer to string...can be a decent amount of text!
 pub fn paintBuf() void {  
     emit(bs[0..bs_len-1]);
+    t_now=std.time.milliTimestamp();
     bs_frame_tic+=1;
     if (bs_sz_min==0) {
         //first frame
@@ -498,8 +507,12 @@ pub fn paintBuf() void {
         if( bs_len > bs_sz_max) {   bs_sz_max=bs_len; }
         bs_sz_avg=bs_sz_avg*(bs_frame_tic-1)/bs_frame_tic+bs_len/bs_frame_tic;
     }
+    
+    t_dur=@intToFloat(f64,t_now-t_start)/1000.0;
+    fps=@intToFloat(f64,bs_frame_tic)/t_dur;
+
     emit(fg[0]);
-    emit_fmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max",.{std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max)});
+    emit_fmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max [ {d:.2} fps ]",.{std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max), fps});
 }
 
 // initBuf(); defer freeBuf();
@@ -638,7 +651,7 @@ pub fn showDoomFire() void {
                 px_prev_hi=px_hi;
                 px_prev_lo=px_lo; 
             }
-            drawBuf(nl);
+            drawBuf(nl); //is this needed?
         } 
         paintBuf();
         resetBuf();
