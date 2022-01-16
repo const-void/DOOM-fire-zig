@@ -31,7 +31,7 @@ const stdin = std.io.getStdIn().reader();
 ///////////////////////////////////
 // zig hints
 ///////////////////////////////////
-// do or do not - there is no try: catch unreadable instead of try on memory / file io
+// do or do not - there is no try: catch unreachable instead of try on memory / file io
 //              - put all try to initXXX()
 // for (i=0; i<MAX; i++) { ... } => var i=0; while (i<MAX) { defer i+=1; ... }
 
