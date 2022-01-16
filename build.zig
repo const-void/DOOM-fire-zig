@@ -13,7 +13,6 @@ pub fn build(b: *std.build.Builder) void {
 
     const exe = b.addExecutable("DOOM-fire", "src/main.zig");
 
-    exe.addIncludeDir("src");
     exe.linkLibC();
     exe.setTarget(target);
     exe.setBuildMode(mode);
