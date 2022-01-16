@@ -1,5 +1,5 @@
 // TEST YOUR (TTY) MIGHT: DOOM FIRE! 
-// (c) 2022 const*void
+// (c) 2022 const void*
 const std = @import("std");
 const allocator = std.heap.page_allocator;
 const stdout = std.io.getStdOut().writer();
