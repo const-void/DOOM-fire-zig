@@ -12,6 +12,7 @@ Tested on OX Monterey / M1 w/zig 0.9...
 
 EDIT: Now tested on Artix Linux - links against libc to get the size of the TTY.
 
+This means that the program does rely on libc, this shouldn't be a problem.
 
 ```
 $ git clone https://github.com/const-void/DOOM-fire-zig/
