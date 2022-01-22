@@ -597,15 +597,13 @@ pub fn showDoomFire() void {
                     spread_rnd_idx = rand.intRangeAtMost(u8, 0, 3);
                     if (doFire_idx >= (spread_rnd_idx + 1)) {
                         spread_dst = doFire_idx - spread_rnd_idx + 1;
-                    }
-                    else {
-                        spread_dst=doFire_idx;
+                    } else {
+                        spread_dst = doFire_idx;
                     }
                     if (spread_dst >= FIRE_W) {
                         if (spread_px > (spread_rnd_idx & 1)) {
-                           screen_buf[spread_dst - FIRE_W] = spread_px - (spread_rnd_idx & 1);
-                        }
-                        else {
+                            screen_buf[spread_dst - FIRE_W] = spread_px - (spread_rnd_idx & 1);
+                        } else {
                             screen_buf[spread_dst - FIRE_W] = 0;
                         }
                     }
