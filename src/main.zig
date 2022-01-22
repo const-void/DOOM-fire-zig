@@ -4,6 +4,9 @@
 // Copy/paste as it helps!
 //
 const std = @import("std");
+const c = @cImport({
+    @cInclude("sys/ioctl.h");
+});
 
 const allocator = std.heap.page_allocator;
 
@@ -11,7 +14,7 @@ const stdout = std.io.getStdOut().writer();
 const stdin = std.io.getStdIn().reader();
 
 ///////////////////////////////////
-// Tested on M1 osx12.1
+// Tested on M1 osx12.1 + Artix Linux.
 //   fast  - vs code terminal
 //   slow  - Terminal.app
 ///////////////////////////////////
@@ -79,8 +82,8 @@ pub fn emitFmt(comptime s: []const u8, args: anytype) void {
 
 //// Settings
 
-//OSX specific ... maybe
-const TIOCGWINSZ = 0x40087468; //ioctl flag
+// Get this value from libc.
+const TIOCGWINSZ = c.TIOCGWINSZ; // ioctl flag
 
 //term size
 const TermSz = struct { height: usize, width: usize };
@@ -143,7 +146,7 @@ pub fn initColor() void {
 
 //get terminal size given a tty
 pub fn getTermSz(tty: std.os.fd_t) !TermSz {
-    var winsz = std.os.system.winsize{ .ws_col = 0, .ws_row = 0, .ws_xpixel = 0, .ws_ypixel = 0 };
+    var winsz = c.winsize{ .ws_col = 0, .ws_row = 0, .ws_xpixel = 0, .ws_ypixel = 0 };
     const rv = std.os.system.ioctl(tty, TIOCGWINSZ, @ptrToInt(&winsz));
     const err = std.os.errno(rv);
     if (rv == 0) {
