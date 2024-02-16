@@ -3,15 +3,21 @@
 //
 // Copy/paste as it helps!
 //
+const builtin = @import("builtin");
 const std = @import("std");
 const c = @cImport({
-    @cInclude("sys/ioctl.h");
+    switch (builtin.os.tag) {
+        .windows => {},
+        else => {
+            @cInclude("sys/ioctl.h");
+        },
+    }
 });
 
 const allocator = std.heap.page_allocator;
 
-const stdout = std.io.getStdOut().writer();
-const stdin = std.io.getStdIn().reader();
+var stdout: std.fs.File.Writer = undefined;
+var stdin: std.fs.File.Reader = undefined;
 
 ///////////////////////////////////
 // Tested on M1 osx12.1 + Artix Linux.
@@ -146,6 +152,18 @@ pub fn initColor() void {
 
 //get terminal size given a tty
 pub fn getTermSz(tty: std.os.fd_t) !TermSz {
+    if (builtin.os.tag == .windows) {
+        var info: win32.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+        if (0 == win32.GetConsoleScreenBufferInfo(tty, &info)) switch (
+            std.os.windows.kernel32.GetLastError()
+        ) {
+            else => |e| return std.os.windows.unexpectedError(e),
+        };
+        return TermSz{
+            .height = @intCast(info.srWindow.Bottom - info.srWindow.Top + 1),
+            .width = @intCast(info.srWindow.Right - info.srWindow.Left + 1),
+        };
+    }
     var winsz = c.winsize{ .ws_col = 0, .ws_row = 0, .ws_xpixel = 0, .ws_ypixel = 0 };
     const rv = std.os.system.ioctl(tty, TIOCGWINSZ, @intFromPtr(&winsz));
     const err = std.os.errno(rv);
@@ -652,6 +670,9 @@ pub fn showDoomFire() void {
 ///////////////////////////////////
 
 pub fn main() anyerror!void {
+    stdout = std.io.getStdOut().writer();
+    stdin = std.io.getStdIn().reader();
+
     try initTerm();
     defer complete();
 
@@ -659,3 +680,29 @@ pub fn main() anyerror!void {
     showTermCap();
     showDoomFire();
 }
+
+const win32 = struct {
+    pub const BOOL = i32;
+    pub const HANDLE = std.os.windows.HANDLE;
+    pub const COORD = extern struct {
+        X: i16,
+        Y: i16,
+    };
+    pub const SMALL_RECT = extern struct {
+        Left: i16,
+        Top: i16,
+        Right: i16,
+        Bottom: i16,
+    };
+    pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
+        dwSize: COORD,
+        dwCursorPosition: COORD,
+        wAttributes: u16,
+        srWindow: SMALL_RECT,
+        dwMaximumWindowSize: COORD,
+    };
+    pub extern "kernel32" fn GetConsoleScreenBufferInfo(
+        hConsoleOutput: ?HANDLE,
+        lpConsoleScreenBufferInfo: ?*CONSOLE_SCREEN_BUFFER_INFO,
+    ) callconv(std.os.windows.WINAPI) BOOL;
+};
