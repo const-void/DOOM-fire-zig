@@ -271,8 +271,8 @@ pub fn checkTermSz() void {
 }
 
 /// Part II - Show terminal capabilities
-/// 
-/// Since user terminals vary in capabilities, handy to have a screen that renders ACTUAL colors 
+///
+/// Since user terminals vary in capabilities, handy to have a screen that renders ACTUAL colors
 /// and exercises various terminal commands prior to DOOM fire.
 ///
 pub fn showTermSz() void {
@@ -451,7 +451,7 @@ pub fn showTermCap() void {
 }
 
 /// DOOM Fire
-/// Slowest - raw emit() 
+/// Slowest - raw emit()
 /// Slower  - raw emit() + \n
 /// Below   - moderately faster
 
@@ -595,7 +595,7 @@ pub fn showDoomFire() void {
     defer freeBuf();
 
     //when there is an ez way to poll for key stroke...do that.  for now, ctrl+c!
-    var ok = true;
+    const ok = true;
     while (ok) {
 
         //update fire buf
