@@ -12,7 +12,7 @@ Tested on OX Monterey / M1 w/zig 0.9...
 
 EDIT: Now tested on Artix Linux - links against libc to get the size of the TTY.
 
-EDIT: 2024 - Now tested with Windows - Win32 Compatible, thank you [@marler8997] (https://www.github.com/marler8997)!
+EDIT: 2024 - Now tested with Windows - Win32 Compatible, thank you [@marler8997](https://www.github.com/marler8997)!
 
 This means that the program does rely on libc, this shouldn't be a problem.
 
