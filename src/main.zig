@@ -54,7 +54,7 @@ pub fn initRNG() !void {
     //rnd setup -- https://ziglearn.org/chapter-2/#random-numbers
     var prng = std.rand.DefaultPrng.init(blk: {
         var seed: u64 = undefined;
-        try std.os.getrandom(std.mem.asBytes(&seed));
+        try std.posix.getrandom(std.mem.asBytes(&seed));
         break :blk seed;
     });
     rand = prng.random();
@@ -145,14 +145,14 @@ pub fn initColor() void {
 // defer freeColor(); just too lazy right now.
 
 //get terminal size given a tty
-pub fn getTermSz(tty: std.os.fd_t) !TermSz {
+pub fn getTermSz(tty: std.posix.fd_t) !TermSz {
     var winsz = c.winsize{ .ws_col = 0, .ws_row = 0, .ws_xpixel = 0, .ws_ypixel = 0 };
-    const rv = std.os.system.ioctl(tty, TIOCGWINSZ, @intFromPtr(&winsz));
-    const err = std.os.errno(rv);
+    const rv = std.os.linux.ioctl(tty, TIOCGWINSZ, @intFromPtr(&winsz));
+    const err = std.posix.errno(rv);
     if (rv == 0) {
         return TermSz{ .height = winsz.ws_row, .width = winsz.ws_col };
     } else {
-        return std.os.unexpectedErrno(err);
+        return std.posix.unexpectedErrno(err);
     }
 }
 
@@ -189,7 +189,7 @@ pub fn pause() void {
     if (b == 'q') {
         //exit cleanly
         complete();
-        std.os.exit(0);
+        std.process.exit(0);
     }
 }
 
