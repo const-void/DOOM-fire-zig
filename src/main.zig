@@ -163,7 +163,6 @@ pub fn getTermSz(tty: std.posix.fd_t) !TermSz {
         if (rv >= 0) {
             return TermSz{ .height = winsz.ws_row, .width = winsz.ws_col };
         } else {
-            std.process.exit(0);
             //TODO this is a pretty terrible way to handle issues...
             return std.posix.unexpectedErrno(err);
         }
@@ -237,28 +236,19 @@ pub fn checkTermSz() void {
         emit(fg[9]);
 
         //check conditions
-        if (w_ok and !h_ok) {
+        if (term_sz.width == 0 or term_sz.height == 0) {
+            emit(bg[1]);
+            emit(fg[15]);
+            emit("ZERO DETECTED!!!" ++ nl);
+            emit(color_reset);
+            emit(fg[9]);
+            emitFmt("Call to retreive terminal dimensions may have failed - we don't know our terminal dimensions." ++ nl ++
+                "Our terminal size is {d} x {d} and we need {d} x {d}." ++ nl ++
+                "We will allocate 0 bytes of screen buffer, resulting in immediate failure.", .{ term_sz.width, term_sz.height, min_w, min_h });
+        } else if (w_ok and !h_ok) {
             emitFmt("Screen may be too short - height is {d} and need {d}.", .{ term_sz.height, min_h });
         } else if (!w_ok and h_ok) {
             emitFmt("Screen may be too narrow - width is {d} and need {d}.", .{ term_sz.width, min_w });
-        } else if (term_sz.width == 0) {
-            // IOCTL succesfully failed!  We believe the call to retrieve terminal dimensions succeeded,
-            // however our structure is zero.
-            emit(bg[1]);
-            emit(fg[15]);
-            emitFmt("Call to retreive terminal dimensions may have failed" ++ nl ++
-                "Width is {d} (ZERO!) and we need {d}." ++ nl ++
-                "We will allocate 0 bytes of screen buffer, resulting in immediate failure.", .{ term_sz.width, min_w });
-            emit(color_reset);
-        } else if (term_sz.height == 0) {
-            // IOCTL succesfully failed!  We believe the call to retrieve terminal dimensions succeeded,
-            // however our structure is zero.
-            emit(bg[1]);
-            emit(fg[15]);
-            emitFmt("Call to retreive terminal dimensions may have failed" ++ nl ++
-                "Height is {d} (ZERO!) and we need {d}." ++ nl ++
-                "We will allocate 0 bytes of screen buffer, resulting in immediate failure.", .{ term_sz.height, min_h });
-            emit(color_reset);
         } else {
             emitFmt("Screen is too small - have {d} x {d} and need {d} x {d}", .{ term_sz.width, term_sz.height, min_w, min_h });
         }
