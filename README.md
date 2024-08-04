@@ -8,7 +8,7 @@ The doom-fire algo can push upwards of 180k a frame - results may vary!  It is, 
 As a comparison, this is the younger sibling of a node variant ( https://github.com/const-void/DOOM-fire-node ).
 
 # INSTALL
-Tested on OX Monterey / M1 w/zig 0.9...
+Tested on OX Sonoma 14.5 / M1 w/zig 0.13...
 
 EDIT: Now tested on Artix Linux - links against libc to get the size of the TTY.
 
