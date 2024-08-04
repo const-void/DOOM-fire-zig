@@ -28,6 +28,7 @@ $ zig build run
 * kitty.app - great
 * Terminal.app - poor -- seems to drop framerates 
 * VS Code - great
+* Warp - great
 * Alacritty (artix linux) - great
 * Powershell/CMD 
 
