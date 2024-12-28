@@ -43,14 +43,14 @@ var stdin: std.fs.File.Reader = undefined;
 ///////////////////////////////////
 
 //// consts, vars, settings
-var rand: std.rand.Random = undefined;
+var rand: std.Random = undefined;
 
 //// functions
 
 // seed & prep for rng
 pub fn initRNG() !void {
     //rnd setup -- https://ziglearn.org/chapter-2/#random-numbers
-    var prng = std.rand.DefaultPrng.init(blk: {
+    var prng = std.Random.DefaultPrng.init(blk: {
         var seed: u64 = undefined;
         try std.posix.getrandom(std.mem.asBytes(&seed));
         break :blk seed;
@@ -156,12 +156,12 @@ pub fn getTermSz(tty: std.posix.fd_t) !TermSz {
         };
     } else {
         //Linux-MacOS Case
-        var winsz = std.c.winsize{ .ws_col = 0, .ws_row = 0, .ws_xpixel = 0, .ws_ypixel = 0 };
+        var winsz = std.c.winsize{ .col = 0, .row = 0, .xpixel = 0, .ypixel = 0 };
         const rv = std.c.ioctl(tty, TIOCGWINSZ, @intFromPtr(&winsz));
         const err = std.posix.errno(rv);
 
         if (rv >= 0) {
-            return TermSz{ .height = winsz.ws_row, .width = winsz.ws_col };
+            return TermSz{ .height = winsz.row, .width = winsz.col };
         } else {
             std.process.exit(0);
             //TODO this is a pretty terrible way to handle issues...
