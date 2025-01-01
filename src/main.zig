@@ -1,7 +1,7 @@
 // TEST YOUR (TTY) MIGHT: DOOM FIRE!
-// (c) 2022, 2023, 2024 const void*
+// (c) 2022, 2023, 2024, 2025  const void*
 //
-// Copy/paste as it helps!
+// Please see GPL3 license at bottom of source.
 //
 const builtin = @import("builtin");
 const std = @import("std");
@@ -12,7 +12,7 @@ var stdout: std.fs.File.Writer = undefined;
 var stdin: std.fs.File.Reader = undefined;
 
 ///////////////////////////////////
-// Tested on M1 osx12.1 + Artix Linux.
+// Tested on M1 osx15.2 + Artix Linux.
 //   fast  - vs code terminal
 //   slow  - Terminal.app
 ///////////////////////////////////
@@ -720,3 +720,18 @@ const win32 = struct {
         lpConsoleScreenBufferInfo: ?*CONSOLE_SCREEN_BUFFER_INFO,
     ) callconv(std.os.windows.WINAPI) BOOL;
 };
+
+//LICENSE --
+//DOOM-fire-zig is free software: you can redistribute it and/or modify it under the terms of
+//the GNU General Public License as published by the Free Software Foundation, either
+//version 3 of the License, or (at your option) any later version.
+//
+//This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+//without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//
+//See the GNU General Public License for more details.
+//
+//You should have received a copy of the GNU General Public License along with this program.
+//
+//If not, see https://www.gnu.org/licenses/.
+//---------

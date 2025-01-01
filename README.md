@@ -8,7 +8,7 @@ The doom-fire algo can push upwards of 180k a frame - results may vary!  It is, 
 As a comparison, this is the younger sibling of a node variant ( https://github.com/const-void/DOOM-fire-node ).
 
 # INSTALL
-Tested on OX Sonoma 14.5 / M1 w/zig 0.13...
+Tested on OX Sequia 15.2 / M1 w/zig 0.13...
 
 EDIT: Now tested on Artix Linux - links against libc to get the size of the TTY.
 
@@ -44,5 +44,13 @@ $ zig build run
 * osx term sz  - https://github.com/sindresorhus/macos-term-size/blob/main/term-size.c
 * px char      - https://github.com/cronvel/terminal-kit
 
+# License
+Copyright 2022-2025, const-void, released under GPL3.
+
+DOOM-fire-zig is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with this program. If not, see https://www.gnu.org/licenses/.
 
 
