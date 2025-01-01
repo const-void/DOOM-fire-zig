@@ -12,7 +12,7 @@ var stdout: std.fs.File.Writer = undefined;
 var stdin: std.fs.File.Reader = undefined;
 
 ///////////////////////////////////
-// Tested on M1 osx12.1 + Artix Linux.
+// Tested on M1 osx15.2 + Artix Linux.
 //   fast  - vs code terminal
 //   slow  - Terminal.app
 ///////////////////////////////////
