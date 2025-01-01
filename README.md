@@ -8,7 +8,7 @@ The doom-fire algo can push upwards of 180k a frame - results may vary!  It is, 
 As a comparison, this is the younger sibling of a node variant ( https://github.com/const-void/DOOM-fire-node ).
 
 # INSTALL
-Tested on OX Sequia 15.2 / M1 w/zig 0.13...
+Each MR tested on OX Sequia 15.2 / M1 w/zig 0.13 on OSX Kitty, VS Code, Alacritty, Terminal.
 
 EDIT: Now tested on Artix Linux - links against libc to get the size of the TTY.
 
@@ -25,12 +25,14 @@ $ zig build run
 
 # Results
 * iTerm.app - ok
-* kitty.app - great
-* Terminal.app - poor -- seems to drop framerates 
-* VS Code - great
+* kitty.app (OSX) - great
+* Terminal.app (OSX) - poor -- seems to drop framerates 
+* VS Code (Linux, OSX) - great
 * Warp - great
-* Alacritty (artix linux) - great
+* Alacritty (artix linux, OSX) - great
 * Powershell/CMD 
+
+Note: Currently uses `u64` and thus is limited to x64 architecture, for now. In the future, will convert to a  comptime approach for greater flexibility.   
 
 # Inspiration / Credits
 * Thanks to contributors for your support!

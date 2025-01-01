@@ -17,6 +17,12 @@ var stdin: std.fs.File.Reader = undefined;
 //   slow  - Terminal.app
 ///////////////////////////////////
 
+// TODO
+// - How can we better offer cross platform support for multiple bit architectures?
+//   Currently memory is fixed w/x64 unsigned integers to support high res displays.
+//   This should probably be a comptime setting so that the integer size can be identified
+//   based on platform (x64 vs x86 vs ... ).
+
 ///////////////////////////////////
 // credits / helpful articles / inspirations
 ///////////////////////////////////
@@ -474,12 +480,12 @@ const px = "▀";
 
 //bs = buffer string
 var bs: []u8 = undefined;
-var bs_idx: u32 = 0;
-var bs_len: u32 = 0;
-var bs_sz_min: u32 = 0;
-var bs_sz_max: u32 = 0;
-var bs_sz_avg: u32 = 0;
-var bs_frame_tic: u32 = 0;
+var bs_idx: u64 = 0;
+var bs_len: u64 = 0;
+var bs_sz_min: u64 = 0;
+var bs_sz_max: u64 = 0;
+var bs_sz_avg: u64 = 0;
+var bs_frame_tic: u64 = 0;
 var t_start: i64 = 0;
 var t_now: i64 = 0;
 var t_dur: f64 = 0.0;
@@ -548,10 +554,10 @@ pub fn freeBuf() void {
 
 pub fn showDoomFire() void {
     //term size => fire size
-    const FIRE_H: u32 = @as(u32, @intCast(term_sz.height)) * 2;
-    const FIRE_W: u32 = @as(u32, @intCast(term_sz.width));
-    const FIRE_SZ: u32 = FIRE_H * FIRE_W;
-    const FIRE_LAST_ROW: u32 = (FIRE_H - 1) * FIRE_W;
+    const FIRE_H: u64 = @as(u64, @intCast(term_sz.height)) * 2;
+    const FIRE_W: u64 = @as(u64, @intCast(term_sz.width));
+    const FIRE_SZ: u64 = FIRE_H * FIRE_W;
+    const FIRE_LAST_ROW: u64 = (FIRE_H - 1) * FIRE_W;
 
     //colors - tinker w/palette as needed!
     const fire_palette = [_]u8{ 0, 233, 234, 52, 53, 88, 89, 94, 95, 96, 130, 131, 132, 133, 172, 214, 215, 220, 220, 221, 3, 226, 227, 230, 195, 230 };
@@ -564,7 +570,7 @@ pub fn showDoomFire() void {
     defer allocator.free(screen_buf);
 
     //init buffer
-    var buf_idx: u32 = 0;
+    var buf_idx: u64 = 0;
     while (buf_idx < FIRE_SZ) : (buf_idx += 1) {
         screen_buf[buf_idx] = fire_black;
     }
@@ -583,22 +589,22 @@ pub fn showDoomFire() void {
 
     //scope cache ////////////////////
     //scope cache - update fire buf
-    var doFire_x: u32 = 0;
-    var doFire_y: u32 = 0;
-    var doFire_idx: u32 = 0;
+    var doFire_x: u64 = 0;
+    var doFire_y: u64 = 0;
+    var doFire_idx: u64 = 0;
 
     //scope cache - spread fire
     var spread_px: u8 = 0;
     var spread_rnd_idx: u8 = 0;
-    var spread_dst: u32 = 0;
+    var spread_dst: u64 = 0;
 
     //scope cache - frame reset
     const init_frame = std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ cursor_home, bg[0], fg[0] }) catch unreachable;
     defer allocator.free(init_frame);
 
     //scope cache - fire 2 screen buffer
-    var frame_x: u32 = 0;
-    var frame_y: u32 = 0;
+    var frame_x: u64 = 0;
+    var frame_y: u64 = 0;
     var px_hi: u8 = fire_black;
     var px_lo: u8 = fire_black;
     var px_prev_hi = px_hi;
