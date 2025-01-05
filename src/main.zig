@@ -167,7 +167,13 @@ pub fn getTermSz(tty: std.posix.fd_t) !TermSz {
         const err = std.posix.errno(rv);
 
         if (rv >= 0) {
-            return TermSz{ .height = winsz.ws_row, .width = winsz.ws_col };
+            if (winsz.ws_row == 0 or winsz.ws_col == 0) { // tty IOCTL failed ie in lldb
+                var alt_tty = try std.fs.cwd().openFile("/dev/tty", .{});
+                defer alt_tty.close();
+                return getTermSz(alt_tty.handle);
+            } else {
+                return TermSz{ .height = winsz.ws_row, .width = winsz.ws_col };
+            }
         } else {
             std.process.exit(0);
             //TODO this is a pretty terrible way to handle issues...
@@ -620,7 +626,7 @@ pub fn showDoomFire() !void {
 
         //update fire buf
         doFire_x = 0;
-        while (doFire_x < FIRE_W) : (doFire_x += 1) {
+        while (doFire_x < FIRE_W) : (doFire_x = doFire_x + 1) {
             doFire_y = 0;
             while (doFire_y < FIRE_H) : (doFire_y += 1) {
                 doFire_idx = doFire_y * FIRE_W + doFire_x;
