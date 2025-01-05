@@ -65,8 +65,8 @@ pub fn initRNG() !void {
 }
 
 // print
-pub fn emit(s: []const u8) void {
-    const sz = stdout.write(s) catch unreachable;
+pub fn emit(s: []const u8) !void {
+    const sz = try stdout.write(s);
     if (sz == 0) {
         return;
     } // cauze I c
@@ -74,10 +74,10 @@ pub fn emit(s: []const u8) void {
 }
 
 // format a string then print
-pub fn emitFmt(comptime s: []const u8, args: anytype) void {
-    const t = std.fmt.allocPrint(allocator, s, args) catch unreachable;
+pub fn emitFmt(comptime s: []const u8, args: anytype) !void {
+    const t = try std.fmt.allocPrint(allocator, s, args);
     defer allocator.free(t);
-    emit(t);
+    try emit(t);
 }
 
 ///////////////////////////////////
@@ -137,11 +137,11 @@ var bg: [MAX_COLOR][]u8 = undefined;
 //// functions
 
 // cache fg/bg ansi codes
-pub fn initColor() void {
+pub fn initColor() !void {
     var color_idx: u32 = 0;
     while (color_idx < MAX_COLOR) : (color_idx += 1) {
-        fg[color_idx] = std.fmt.allocPrint(allocator, "{s}38;5;{d}m", .{ csi, color_idx }) catch unreachable;
-        bg[color_idx] = std.fmt.allocPrint(allocator, "{s}48;5;{d}m", .{ csi, color_idx }) catch unreachable;
+        fg[color_idx] = try std.fmt.allocPrint(allocator, "{s}38;5;{d}m", .{ csi, color_idx });
+        bg[color_idx] = try std.fmt.allocPrint(allocator, "{s}48;5;{d}m", .{ csi, color_idx });
     }
 }
 
@@ -181,34 +181,34 @@ pub fn initTermSize() !void {
 }
 
 pub fn initTerm() !void {
-    emit(term_on);
-    initColor();
+    try emit(term_on);
+    try initColor();
     try initTermSize();
     try initRNG();
 }
 
 // initTerm(); defer complete();
-pub fn complete() void {
+pub fn complete() !void {
     //todo -- free colors
-    emit(term_off);
-    emit("Complete!\n");
+    try emit(term_off);
+    try emit("Complete!\n");
 }
 
 /////////////////
 // doom-fire
 /////////////////
 
-pub fn pause() void {
+pub fn pause() !void {
     //todo - poll / read a keystroke w/out echo, \n etc
 
-    emit(color_reset);
-    emit("Press return to continue...");
+    try emit(color_reset);
+    try emit("Press return to continue...");
     var b: u8 = undefined;
     b = stdin.readByte() catch undefined;
 
     if (b == 'q') {
         //exit cleanly
-        complete();
+        try complete();
         std.process.exit(0);
     }
 }
@@ -220,7 +220,7 @@ pub fn pause() void {
 ///
 
 // do nothing if term sz is big enough
-pub fn checkTermSz() void {
+pub fn checkTermSz() !void {
     const min_w = 120;
     const min_h = 22;
     var w_ok = true;
@@ -240,53 +240,53 @@ pub fn checkTermSz() void {
         //screen is too small
 
         //red text
-        emit(fg[9]);
+        try emit(fg[9]);
 
         //check conditions
         if (w_ok and !h_ok) {
-            emitFmt("Screen may be too short - height is {d} and need {d}.", .{ term_sz.height, min_h });
+            try emitFmt("Screen may be too short - height is {d} and need {d}.", .{ term_sz.height, min_h });
         } else if (!w_ok and h_ok) {
-            emitFmt("Screen may be too narrow - width is {d} and need {d}.", .{ term_sz.width, min_w });
+            try emitFmt("Screen may be too narrow - width is {d} and need {d}.", .{ term_sz.width, min_w });
         } else if (term_sz.width == 0) {
             // IOCTL succesfully failed!  We believe the call to retrieve terminal dimensions succeeded,
             // however our structure is zero.
-            emit(bg[1]);
-            emit(fg[15]);
-            emitFmt("Call to retreive terminal dimensions may have failed" ++ nl ++
+            try emit(bg[1]);
+            try emit(fg[15]);
+            try emitFmt("Call to retreive terminal dimensions may have failed" ++ nl ++
                 "Width is {d} (ZERO!) and we need {d}." ++ nl ++
                 "We will allocate 0 bytes of screen buffer, resulting in immediate failure.", .{ term_sz.width, min_w });
-            emit(color_reset);
+            try emit(color_reset);
         } else if (term_sz.height == 0) {
             // IOCTL succesfully failed!  We believe the call to retrieve terminal dimensions succeeded,
             // however our structure is zero.
-            emit(bg[1]);
-            emit(fg[15]);
-            emitFmt("Call to retreive terminal dimensions may have failed" ++ nl ++
+            try emit(bg[1]);
+            try emit(fg[15]);
+            try emitFmt("Call to retreive terminal dimensions may have failed" ++ nl ++
                 "Height is {d} (ZERO!) and we need {d}." ++ nl ++
                 "We will allocate 0 bytes of screen buffer, resulting in immediate failure.", .{ term_sz.height, min_h });
-            emit(color_reset);
+            try emit(color_reset);
         } else {
-            emitFmt("Screen is too small - have {d} x {d} and need {d} x {d}", .{ term_sz.width, term_sz.height, min_w, min_h });
+            try emitFmt("Screen is too small - have {d} x {d} and need {d} x {d}", .{ term_sz.width, term_sz.height, min_w, min_h });
         }
 
-        emit(nl);
-        emit(nl);
+        try emit(nl);
+        try emit(nl);
 
         //warn user w/white on red
-        emit(bg[1]);
-        emit(fg[15]);
-        emit("There may be rendering issues on the next screen; to correct, <q><enter>, resize and try again.");
-        emit(line_clear_to_eol);
-        emit(color_reset);
-        emit("\n\nContinue?\n\n");
+        try emit(bg[1]);
+        try emit(fg[15]);
+        try emit("There may be rendering issues on the next screen; to correct, <q><enter>, resize and try again.");
+        try emit(line_clear_to_eol);
+        try emit(color_reset);
+        try emit("\n\nContinue?\n\n");
 
         //assume ok...pause will exit for us.
-        pause();
+        try pause();
 
         //clear all the warning text and keep on trucking!
-        emit(color_reset);
-        emit(cursor_home);
-        emit(screen_clear);
+        try emit(color_reset);
+        try emit(cursor_home);
+        try emit(screen_clear);
     }
 }
 
@@ -295,46 +295,46 @@ pub fn checkTermSz() void {
 /// Since user terminals vary in capabilities, handy to have a screen that renders ACTUAL colors
 /// and exercises various terminal commands prior to DOOM fire.
 ///
-pub fn showTermSz() void {
+pub fn showTermSz() !void {
     //todo - show os, os ver, zig ver
-    emitFmt("Screen size: {d}w x {d}h\n\n", .{ term_sz.width, term_sz.height });
+    try emitFmt("Screen size: {d}w x {d}h\n\n", .{ term_sz.width, term_sz.height });
 }
 
-pub fn showLabel(label: []const u8) void {
-    emitFmt("{s}{s}:\n", .{ color_def, label });
+pub fn showLabel(label: []const u8) !void {
+    try emitFmt("{s}{s}:\n", .{ color_def, label });
 }
 
-pub fn showStdColors() void {
-    showLabel("Standard colors");
+pub fn showStdColors() !void {
+    try showLabel("Standard colors");
 
     //first 8 colors (standard)
-    emit(fg[15]);
+    try emit(fg[15]);
     var color_idx: u8 = 0;
     while (color_idx < 8) : (color_idx += 1) {
-        emit(bg[color_idx]);
+        try emit(bg[color_idx]);
         if (color_idx == 7) {
-            emit(fg[0]);
+            try emit(fg[0]);
         }
-        emitFmt("{u} {d:2}  ", .{ sep, color_idx });
+        try emitFmt("{u} {d:2}  ", .{ sep, color_idx });
     }
-    emit(nl);
+    try emit(nl);
 
     //next 8 colors ("hilight")
-    emit(fg[15]);
+    try emit(fg[15]);
     while (color_idx < 16) : (color_idx += 1) {
-        emit(bg[color_idx]);
+        try emit(bg[color_idx]);
         if (color_idx == 15) {
-            emit(fg[0]);
+            try emit(fg[0]);
         }
-        emitFmt("{u} {d:2}  ", .{ sep, color_idx });
+        try emitFmt("{u} {d:2}  ", .{ sep, color_idx });
     }
 
-    emit(nl);
-    emit(nl);
+    try emit(nl);
+    try emit(nl);
 }
 
-pub fn show216Colors() void {
-    showLabel("216 colors");
+pub fn show216Colors() !void {
+    try showLabel("216 colors");
 
     var color_addendum: u8 = 0;
     var bg_idx: u8 = 0;
@@ -360,48 +360,48 @@ pub fn show216Colors() void {
             }
 
             // display color
-            emit(bg[bg_idx]);
-            emit(fg[fg_idx]);
-            emitFmt("{d:3}", .{bg_idx});
+            try emit(bg[bg_idx]);
+            try emit(fg[fg_idx]);
+            try emitFmt("{d:3}", .{bg_idx});
         }
-        emit(nl);
+        try emit(nl);
     }
-    emit(nl);
+    try emit(nl);
 }
 
-pub fn showGrayscale() void {
-    showLabel("Grayscale");
+pub fn showGrayscale() !void {
+    try showLabel("Grayscale");
 
     var fg_idx: u8 = 15;
-    emit(fg[fg_idx]);
+    try emit(fg[fg_idx]);
 
     var bg_idx: u32 = 232;
     while (bg_idx < 256) : (bg_idx += 1) {
         if (bg_idx > 243) {
             fg_idx = 0;
-            emit(fg[fg_idx]);
+            try emit(fg[fg_idx]);
         }
 
-        emit(bg[bg_idx]);
-        emitFmt("{u}{d} ", .{ sep, bg_idx });
+        try emit(bg[bg_idx]);
+        try emitFmt("{u}{d} ", .{ sep, bg_idx });
     }
-    emit(nl);
+    try emit(nl);
 
     //cleanup
-    emit(color_def);
-    emit(nl);
+    try emit(color_def);
+    try emit(nl);
 }
 
-pub fn scrollMarquee() void {
+pub fn scrollMarquee() !void {
     //marquee - 4 lines of yellowish background
     const bg_idx: u8 = 222;
     const marquee_row = line_clear_to_eol ++ nl;
     const marquee_bg = marquee_row ++ marquee_row ++ marquee_row ++ marquee_row;
 
     //init marquee background
-    emit(cursor_save);
-    emit(bg[bg_idx]);
-    emit(marquee_bg);
+    try emit(cursor_save);
+    try emit(bg[bg_idx]);
+    try emit(marquee_bg);
 
     //quotes - will confirm animations are working on current terminal
     const txt = [_][]const u8{ "  Things move along so rapidly nowadays that people saying " ++ color_italic ++ "It can't be done" ++ color_not_italic ++ " are always being interrupted", "  by somebody doing it.                                                                    " ++ color_italic ++ "-- Puck, 1902" ++ color_not_italic, "  Test your might!", "  " ++ color_italic ++ "-- Mortal Kombat" ++ color_not_italic, "  How much is the fish?", "             " ++ color_italic ++ "-- Scooter" ++ color_not_italic };
@@ -419,18 +419,18 @@ pub fn scrollMarquee() void {
         fade_idx = 0;
         while (fade_idx < fade_len) : (fade_idx += 1) {
             //reset to 1,1 of marquee
-            emit(cursor_load);
-            emit(bg[bg_idx]);
-            emit(nl);
+            try emit(cursor_load);
+            try emit(bg[bg_idx]);
+            try emit(nl);
 
             //print marquee txt
-            emit(fg[fade_seq[fade_idx]]);
-            emit(txt[txt_idx * 2]);
-            emit(line_clear_to_eol);
-            emit(nl);
-            emit(txt[txt_idx * 2 + 1]);
-            emit(line_clear_to_eol);
-            emit(nl);
+            try emit(fg[fade_seq[fade_idx]]);
+            try emit(txt[txt_idx * 2]);
+            try emit(line_clear_to_eol);
+            try emit(nl);
+            try emit(txt[txt_idx * 2 + 1]);
+            try emit(line_clear_to_eol);
+            try emit(nl);
 
             std.time.sleep(10 * std.time.ns_per_ms);
         }
@@ -442,32 +442,32 @@ pub fn scrollMarquee() void {
         fade_idx = fade_len - 1;
         while (fade_idx > 0) : (fade_idx -= 1) {
             //reset to 1,1 of marquee
-            emit(cursor_load);
-            emit(bg[bg_idx]);
-            emit(nl);
+            try emit(cursor_load);
+            try emit(bg[bg_idx]);
+            try emit(nl);
 
             //print marquee txt
-            emit(fg[fade_seq[fade_idx]]);
-            emit(txt[txt_idx * 2]);
-            emit(line_clear_to_eol);
-            emit(nl);
-            emit(txt[txt_idx * 2 + 1]);
-            emit(line_clear_to_eol);
-            emit(nl);
+            try emit(fg[fade_seq[fade_idx]]);
+            try emit(txt[txt_idx * 2]);
+            try emit(line_clear_to_eol);
+            try emit(nl);
+            try emit(txt[txt_idx * 2 + 1]);
+            try emit(line_clear_to_eol);
+            try emit(nl);
             std.time.sleep(10 * std.time.ns_per_ms);
         }
     }
 }
 
 // prove out terminal implementation by rendering colors and some simple animations
-pub fn showTermCap() void {
-    showTermSz();
-    showStdColors();
-    show216Colors();
-    showGrayscale();
-    scrollMarquee();
+pub fn showTermCap() !void {
+    try showTermSz();
+    try showStdColors();
+    try show216Colors();
+    try showGrayscale();
+    try scrollMarquee();
 
-    pause();
+    try pause();
 }
 
 /// DOOM Fire
@@ -491,7 +491,7 @@ var t_now: i64 = 0;
 var t_dur: f64 = 0.0;
 var fps: f64 = 0.0;
 
-pub fn initBuf() void {
+pub fn initBuf() !void {
     //some lazy guesswork to make sure we have enough of a buffer to render DOOM fire.
     const px_char_sz = px.len;
     const px_color_sz = bg[LAST_COLOR].len + fg[LAST_COLOR].len;
@@ -500,7 +500,7 @@ pub fn initBuf() void {
     const overflow_sz: u64 = px_char_sz * 100;
     const bs_sz: u64 = screen_sz + overflow_sz;
 
-    bs = allocator.alloc(u8, bs_sz * 2) catch unreachable;
+    bs = try allocator.alloc(u8, bs_sz * 2);
     t_start = std.time.milliTimestamp();
     resetBuf();
 }
@@ -521,8 +521,8 @@ pub fn drawBuf(s: []const u8) void {
 }
 
 //print buffer to string...can be a decent amount of text!
-pub fn paintBuf() void {
-    emit(bs[0 .. bs_len - 1]);
+pub fn paintBuf() !void {
+    try emit(bs[0 .. bs_len - 1]);
     t_now = std.time.milliTimestamp();
     bs_frame_tic += 1;
     if (bs_sz_min == 0) {
@@ -543,8 +543,8 @@ pub fn paintBuf() void {
     t_dur = @as(f64, @floatFromInt(t_now - t_start)) / 1000.0;
     fps = @as(f64, @floatFromInt(bs_frame_tic)) / t_dur;
 
-    emit(fg[0]);
-    emitFmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max [ {d:.2} fps ]", .{ std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max), fps });
+    try emit(fg[0]);
+    try emitFmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max [ {d:.2} fps ]", .{ std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max), fps });
 }
 
 // initBuf(); defer freeBuf();
@@ -552,7 +552,7 @@ pub fn freeBuf() void {
     allocator.free(bs);
 }
 
-pub fn showDoomFire() void {
+pub fn showDoomFire() !void {
     //term size => fire size
     const FIRE_H: u64 = @as(u64, @intCast(term_sz.height)) * 2;
     const FIRE_W: u64 = @as(u64, @intCast(term_sz.width));
@@ -566,7 +566,7 @@ pub fn showDoomFire() void {
 
     //screen buf default color is black
     var screen_buf: []u8 = undefined; //{fire_black}**FIRE_SZ;
-    screen_buf = allocator.alloc(u8, FIRE_SZ) catch unreachable;
+    screen_buf = try allocator.alloc(u8, FIRE_SZ);
     defer allocator.free(screen_buf);
 
     //init buffer
@@ -582,10 +582,10 @@ pub fn showDoomFire() void {
     }
 
     //reset terminal
-    emit(cursor_home);
-    emit(color_reset);
-    emit(color_def);
-    emit(screen_clear);
+    try emit(cursor_home);
+    try emit(color_reset);
+    try emit(color_def);
+    try emit(screen_clear);
 
     //scope cache ////////////////////
     //scope cache - update fire buf
@@ -599,7 +599,7 @@ pub fn showDoomFire() void {
     var spread_dst: u64 = 0;
 
     //scope cache - frame reset
-    const init_frame = std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ cursor_home, bg[0], fg[0] }) catch unreachable;
+    const init_frame = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ cursor_home, bg[0], fg[0] });
     defer allocator.free(init_frame);
 
     //scope cache - fire 2 screen buffer
@@ -611,7 +611,7 @@ pub fn showDoomFire() void {
     var px_prev_lo = px_lo;
 
     //get to work!
-    initBuf();
+    try initBuf();
     defer freeBuf();
 
     //when there is an ez way to poll for key stroke...do that.  for now, ctrl+c!
@@ -680,7 +680,7 @@ pub fn showDoomFire() void {
             }
             drawBuf(nl); //is this needed?
         }
-        paintBuf();
+        try paintBuf();
         resetBuf();
     }
 }
@@ -694,11 +694,11 @@ pub fn main() anyerror!void {
     stdin = std.io.getStdIn().reader();
 
     try initTerm();
-    defer complete();
+    defer complete() catch {};
 
-    checkTermSz();
-    showTermCap();
-    showDoomFire();
+    try checkTermSz();
+    try showTermCap();
+    try showDoomFire();
 }
 
 const win32 = struct {
