@@ -717,7 +717,7 @@ const win32 = struct {
     pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
         dwSize: COORD,
         dwCursorPosition: COORD,
-        wAttributes: u32,
+        wAttributes: u16,
         srWindow: SMALL_RECT,
         dwMaximumWindowSize: COORD,
     };
