@@ -10,6 +10,7 @@ const allocator = std.heap.page_allocator;
 
 var stdout: std.fs.File.Writer = undefined;
 var stdin: std.fs.File.Reader = undefined;
+var g_tty_win: win32.HANDLE = undefined;
 
 ///////////////////////////////////
 // Tested on M1 osx15.2 + Artix Linux.
@@ -64,13 +65,28 @@ pub fn initRNG() !void {
     rand = prng.random();
 }
 
+pub fn getNullPtr() ?*anyopaque {
+    return null;
+}
+
 // print
 pub fn emit(s: []const u8) !void {
-    const sz = try stdout.write(s);
-    if (sz == 0) {
+    if (builtin.os.tag == .windows) {
+        var sz: win32.DWORD = 0;
+        //const null_ptr = getNullPtr();
+
+        const rv = win32.WriteConsoleA(g_tty_win, s.ptr, @intCast(s.len), &sz, undefined);
+        if (rv == 0) {
+            return;
+        }
         return;
-    } // cauze I c
-    return;
+    } else {
+        const sz = try stdout.write(s);
+        if (sz == 0) {
+            return;
+        } // cauze I c
+        return;
+    }
 }
 
 // format a string then print
@@ -149,28 +165,53 @@ pub fn initColor() !void {
 // defer freeColor(); just too lazy right now.
 
 //get terminal size given a tty
-pub fn getTermSz(tty: std.posix.fd_t) !TermSz {
+pub fn getTermSz() !TermSz {
     if (builtin.os.tag == .windows) {
         //Microsoft Windows Case
         var info: win32.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        if (0 == win32.GetConsoleScreenBufferInfo(tty, &info)) switch (std.os.windows.kernel32.GetLastError()) {
+
+        // credit: n-prat ( https://github.com/const-void/DOOM-fire-zig/issues/17#issuecomment-2587481269 )
+        g_tty_win = std.os.windows.GetStdHandle(win32.STD_OUTPUT_HANDLE) catch return std.os.windows.unexpectedError(std.os.windows.kernel32.GetLastError());
+
+        if (0 == win32.GetConsoleScreenBufferInfo(g_tty_win, &info)) switch (std.os.windows.kernel32.GetLastError()) {
             else => |e| return std.os.windows.unexpectedError(e),
         };
+
+        if (0 == win32.SetConsoleMode(g_tty_win, win32.ENABLE_PROCESSED_OUTPUT | win32.ENABLE_VIRTUAL_TERMINAL_PROCESSING)) switch (std.os.windows.kernel32.GetLastError()) {
+            else => |e| return std.os.windows.unexpectedError(e),
+        };
+
+        if (0 == win32.SetConsoleOutputCP(win32.CP_UTF8)) switch (std.os.windows.kernel32.GetLastError()) {
+            else => |e| return std.os.windows.unexpectedError(e),
+        };
+
         return TermSz{
-            .height = @intCast(info.srWindow.Bottom - info.srWindow.Top + 1),
-            .width = @intCast(info.srWindow.Right - info.srWindow.Left + 1),
+            .height = @intCast(info.dwSize.Y),
+            .width = @intCast(info.dwSize.X),
         };
     } else {
         //Linux-MacOS Case
+        const tty_nix = stdout.context.handle;
         var winsz = std.c.winsize{ .ws_col = 0, .ws_row = 0, .ws_xpixel = 0, .ws_ypixel = 0 };
-        const rv = std.c.ioctl(tty, TIOCGWINSZ, @intFromPtr(&winsz));
+        const rv = std.c.ioctl(tty_nix, TIOCGWINSZ, @intFromPtr(&winsz));
         const err = std.posix.errno(rv);
 
         if (rv >= 0) {
-            if (winsz.ws_row == 0 or winsz.ws_col == 0) { // tty IOCTL failed ie in lldb
-                var alt_tty = try std.fs.cwd().openFile("/dev/tty", .{});
-                defer alt_tty.close();
-                return getTermSz(alt_tty.handle);
+            if (winsz.ws_row == 0 or winsz.ws_col == 0) { // ltty IOCTL failed ie in lldb
+                var lldb_tty_nix = try std.fs.cwd().openFile("/dev/tty", .{});
+                defer lldb_tty_nix.close();
+
+                var lldb_winsz = std.c.winsize{ .ws_col = 0, .ws_row = 0, .ws_xpixel = 0, .ws_ypixel = 0 };
+                const lldb_rv = std.c.ioctl(lldb_tty_nix, TIOCGWINSZ, @intFromPtr(&lldb_winsz));
+                const lldb_err = std.posix.errno(lldb_rv);
+
+                if (lldb_rv >= 0) {
+                    return TermSz{ .height = lldb_winsz.ws_row, .width = lldb_winsz.ws_col };
+                } else {
+                    std.process.exit(0);
+                    //TODO this is a pretty terrible way to handle issues...
+                    return std.posix.unexpectedErrno(lldb_err);
+                }
             } else {
                 return TermSz{ .height = winsz.ws_row, .width = winsz.ws_col };
             }
@@ -183,7 +224,7 @@ pub fn getTermSz(tty: std.posix.fd_t) !TermSz {
 }
 
 pub fn initTermSize() !void {
-    term_sz = try getTermSz(stdout.context.handle);
+    term_sz = try getTermSz();
 }
 
 pub fn initTerm() !void {
@@ -707,30 +748,86 @@ pub fn main() anyerror!void {
     try showDoomFire();
 }
 
+// -- NOTE -- Keep the below aligned w/Microsoft Windows (MS WIN) specification
+//            Changes to the below that are unaligned will cause panics or strange bugs
+
 const win32 = struct {
-    pub const BOOL = i32;
-    pub const HANDLE = std.os.windows.HANDLE;
+    // --------------
+    // define MS WIN base types in zig terms
+    //    part of std.os.windows
+    pub const WORD: type = std.os.windows.WORD; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/f8573df3-a44a-4a50-b070-ac4c3aa78e3c
+    pub const BOOL: type = std.os.windows.BOOL; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/9d81be47-232e-42cf-8f0d-7a3b29bf2eb2
+    pub const HANDLE: type = std.os.windows.HANDLE; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/929187f0-f25c-4b05-9497-16b066d8a912
+    pub const SHORT: type = std.os.windows.SHORT; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/47b1e7d6-b5a1-48c3-986e-b5e5eb3f06d2
+    pub const DWORD: type = std.os.windows.DWORD; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/262627d8-3418-4627-9218-4ffe110850b2
+    pub const UINT: type = std.os.windows.UINT; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/52ddd4c3-55b9-4e03-8287-5392aac0627f
+    pub const LPVOID: type = std.os.windows.LPVOID;
+    //void https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/c0b7741b-f577-4eed-aff3-2e909df10a4d
+
+    //
+    // --------------
+    // define MS WIN constants in terms of MS WIN base types
+    //
+    // screen buffer output constants c/o https://learn.microsoft.com/en-us/windows/console/setconsolemode
+    pub const ENABLE_PROCESSED_OUTPUT: DWORD = 0x0001; // USED
+    pub const ENABLE_WRAP_AT_EOL_OUTPUT: DWORD = 0x0002;
+    pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING: DWORD = 0x0004; // USED
+    pub const DISABLE_NEWLINE_AUTO_RETURN: DWORD = 0x0008;
+    pub const ENABLE_LVB_GRID_WORLDWIDE: DWORD = 0x0010;
+
+    // https://learn.microsoft.com/en-us/windows/apps/design/globalizing/use-utf8-code-page
+    pub const CP_UTF8: UINT = 65001;
+
+    // https://learn.microsoft.com/en-us/windows/console/getstdhandle
+    //   part of std.os.windows
+    //   for use with https://ziglang.org/documentation/master/std/#std.os.windows.GetStdHandle
+    pub const STD_INPUT_HANDLE = std.os.windows.STD_INPUT_HANDLE;
+    pub const STD_OUTPUT_HANDLE = std.os.windows.STD_OUTPUT_HANDLE;
+    pub const STD_ERR_HANDLE = std.os.windows.STD_ERROR_HANDLE;
+
+    // --------------
+    // define MS WIN structures in terms of MS WIN base types
+    // CORD = https://learn.microsoft.com/en-us/windows/console/coord-str
     pub const COORD = extern struct {
-        X: i16,
-        Y: i16,
+        X: SHORT,
+        Y: SHORT,
     };
+
+    //SMALL_RECT = https://learn.microsoft.com/en-us/windows/console/small-rect-str
     pub const SMALL_RECT = extern struct {
-        Left: i16,
-        Top: i16,
-        Right: i16,
-        Bottom: i16,
+        Left: SHORT,
+        Top: SHORT,
+        Right: SHORT,
+        Bottom: SHORT,
     };
+
+    // CONSOLE_SCREEN_BUFFER_INFO = https://learn.microsoft.com/en-us/windows/console/console-screen-buffer-info-str
     pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
         dwSize: COORD,
         dwCursorPosition: COORD,
-        wAttributes: u32,
+        wAttributes: WORD,
         srWindow: SMALL_RECT,
         dwMaximumWindowSize: COORD,
     };
+
+    // -----------------
+    // define MS WIN console API in terms of MS WIN base types and MS WIN structures
+    //   reference: https://learn.microsoft.com/en-us/windows/console/console-functions
+
+    // https://learn.microsoft.com/en-us/windows/console/getconsolescreenbufferinfo
     pub extern "kernel32" fn GetConsoleScreenBufferInfo(
         hConsoleOutput: ?HANDLE,
         lpConsoleScreenBufferInfo: ?*CONSOLE_SCREEN_BUFFER_INFO,
     ) callconv(std.os.windows.WINAPI) BOOL;
+
+    // https://learn.microsoft.com/en-us/windows/console/setconsolemode
+    pub extern "kernel32" fn SetConsoleMode(in_hConsoleHandle: HANDLE, in_Mode: DWORD) callconv(std.os.windows.WINAPI) BOOL;
+
+    // https://learn.microsoft.com/en-us/windows/console/setconsoleoutputcp
+    pub extern "kernel32" fn SetConsoleOutputCP(in_wCodePageID: UINT) callconv(std.os.windows.WINAPI) BOOL;
+
+    // https://learn.microsoft.com/en-us/windows/console/writeconsole
+    pub extern "kernel32" fn WriteConsoleA(in_hConsoleOutput: HANDLE, in_lpBuffer: [*]const u8, in_nNumberOfCharsToWrite: DWORD, out_lpNumberOfCharsWritten: ?*DWORD, lpReserved: *void) callconv(std.os.windows.WINAPI) BOOL;
 };
 
 //LICENSE --

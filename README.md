@@ -12,7 +12,7 @@ Each MR tested on OX Sequia 15.2 / M1 w/zig 0.13 on OSX Kitty, VS Code, Alacritt
 
 EDIT: Now tested on Artix Linux - links against libc to get the size of the TTY.
 
-EDIT: 2024 - Now tested with Windows - Win32 Compatible, thank you [@marler8997](https://www.github.com/marler8997)!
+EDIT: 2025 - Windows does not currently function properly, though it will compile, it may panic.
 
 This means that the program does rely on libc, this shouldn't be a problem.
 
@@ -30,8 +30,9 @@ $ zig build run
 * VS Code (Linux, OSX) - great
 * Warp - great
 * Alacritty (artix linux, OSX) - great
-* Powershell/CMD 
-
+* VS Code (Windows) - poor FPS 
+* CMD, Powershell (Windows) - compiles but fails to render DOOMFire.
+ 
 Note: Currently uses `u64` and thus is limited to x64 architecture, for now. In the future, will convert to a  comptime approach for greater flexibility.   
 
 # Inspiration / Credits
