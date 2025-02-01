@@ -1,7 +1,7 @@
 # DOOMFIRE
 ## Test your TTY's might!
 
-![demo](https://user-images.githubusercontent.com/76228776/149635702-a331f892-7799-4f7f-a4a6-7048d3529dcf.mp4)
+https://user-images.githubusercontent.com/76228776/149635702-a331f892-7799-4f7f-a4a6-7048d3529dcf.mp4
 
 The doom-fire algo can push upwards of 180k a frame - results may vary!  It is, to my surprise, a nice TTY stress test.
 
