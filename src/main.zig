@@ -202,7 +202,7 @@ pub fn getTermSz() !TermSz {
                 defer lldb_tty_nix.close();
 
                 var lldb_winsz = std.c.winsize{ .ws_col = 0, .ws_row = 0, .ws_xpixel = 0, .ws_ypixel = 0 };
-                const lldb_rv = std.c.ioctl(lldb_tty_nix, TIOCGWINSZ, @intFromPtr(&lldb_winsz));
+                const lldb_rv = std.c.ioctl(lldb_tty_nix.handle, TIOCGWINSZ, @intFromPtr(&lldb_winsz));
                 const lldb_err = std.posix.errno(lldb_rv);
 
                 if (lldb_rv >= 0) {
