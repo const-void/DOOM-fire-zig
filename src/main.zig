@@ -65,15 +65,10 @@ pub fn initRNG() !void {
     rand = prng.random();
 }
 
-pub fn getNullPtr() ?*anyopaque {
-    return null;
-}
-
 // print
 pub fn emit(s: []const u8) !void {
     if (builtin.os.tag == .windows) {
         var sz: win32.DWORD = 0;
-        //const null_ptr = getNullPtr();
 
         const rv = win32.WriteConsoleA(g_tty_win, s.ptr, @intCast(s.len), &sz, undefined);
         if (rv == 0) {
