@@ -53,6 +53,9 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    // -----------------------------------
+    // commented out test to avoid permission issues when building .exe
+
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     //const lib_unit_tests = b.addTest(.{
