@@ -28,14 +28,6 @@ Merge Request (MR) Validation:
 # Results
 Start your favorite terminal, maximize it, then launch DOOM-fire-zig! Test your terminal's might. 
 
-Definitions:
-```
-<=   5 avg fps = very poor
-<=  24 avg fps = poor
-   ... avg fps = ok
->= 100 avg fps = great
-```
-
 | Terminal           | Linux  | MacOS        | Windows          |
 | ------------------ | ------ | ------------ | ---------------- |
 | Alacritty          | great? | great        | very poor (4pfs) |
@@ -49,11 +41,19 @@ Definitions:
 | Warp               | great? | great        | -                |
 | WezTerm            | ?      | ?            | ok               |
 
+### Definitions
+```
+<=   5 avg fps = very poor
+<=  24 avg fps = poor
+   ... avg fps = ok
+>= 100 avg fps = great
+```
+
 ### Microsoft Note
 It appears Windows terminal performance is a function of the underlying console; when a terminal is using the default Microsoft console, such as used by CMD.EXE, Windows fps appears to be gated.
 
-### Apple Note
-The Apple terminal reports avg 30-40 fps, however visually, it appears to be drop frames, resulting in a very choppy effect.
+### MacOS / Apple Note
+The default MacOS / Apple terminal reports an avg 30-40 fps, however visually, it appears to be drop frames, resulting in a very choppy effect
  
 ## Results are for fun
 As our approach is unscientific, we only indicate avg fps for underpeformers, to set expectations; results will vary based on - os+platform, GPU, terminal size (function of font size, monitor resolution, zoom %, etc), specific terminal configuration, terminal version -- even zig itself is a factor. 
