@@ -8,9 +8,9 @@ The doom-fire algo can push upwards of 180k a frame - results may vary!  It is, 
 As a comparison, this is the younger sibling of a node variant ( https://github.com/const-void/DOOM-fire-node ).
 
 # INSTALL
-Each MR tested on MacOS Sequia 15.3 / M1 w/zig 0.13 on OSX Kitty, VS Code, Alacritty, Terminal.
-Many MR tested on Windows 10 / Intel, with Microsoft Terminal, CMD.EXE, PowerShell.
-Linux tests are c/o the wonderful community who help identify...and repair...cross platform issues!
+* Each MR tested on MacOS Sequia 15.3 / M1 w/zig 0.13 on OSX Kitty, VS Code, Alacritty, Terminal.
+* Many MR tested on Windows 10 / Intel, with Microsoft Terminal, CMD.EXE, PowerShell.
+* Linux tests are c/o the wonderful community who help identify...and repair...cross platform issues!
 
 ```
 $ git clone https://github.com/const-void/DOOM-fire-zig/
@@ -27,10 +27,12 @@ Build Requirements:
 Start your favorite terminal, maximize it, then launch DOOM-fire-zig! Test your terminal's might. 
 
 Definitions:
+```
 <=   5 avg fps = very poor
 <=  24 avg fps = poor
    ... avg fps = ok
 >= 100 avg fps = great
+```
 
 | Terminal           | Linux  | MacOS        | Windows          |
 | ------------------ | ------ | ------------ | ---------------- |
@@ -45,14 +47,16 @@ Definitions:
 | Warp               | great? | great        | -                |
 | WezTerm            | ?      | ?            | ok               |
 
-Microsoft Note: It appears Windows terminal performance is a function of the underlying console; if a terminal is using the default Microsoft console, such as used by CMD.EXE, Windows fps appears to be gated.
+## Microsoft Note
+It appears Windows terminal performance is a function of the underlying console; if a terminal is using the default Microsoft console, such as used by CMD.EXE, Windows fps appears to be gated.
 
-Apple Note: The Apple terminal reports avg 30-40 fps, however visually, it appears to be drop frames, creating a choppy result.
+## Apple Note
+The Apple terminal reports avg 30-40 fps, however visually, it appears to be drop frames, creating a choppy result.
 
 ## Results are for fun, not disappointment
 As our approach is unscientific, we only indicate avg fps for underpeformers; results will vary based on - os+platform, GPU, terminal size (function of font size, monitor resolution, zoom %, etc), specific terminal configuration -- even zig itself is a factor. 
 
-We don't test every terminal with each migration request; the majority come from the community. One report is enough! This is for fun, to encourage terminals to be great out-of-the-box, and us to learn - to explore what our terminals can do, and share configuration that gives fps a boost (and potential cost elsewhere...).
+We don't test every terminal with each migration request; the majority come from the community. One report is enough! This is for fun, to encourage terminals to be great out-of-the-box, and us to learn - to explore what our terminals can do, and share configuration that gives fps a boost (at potential cost elsewhere...).
 
 180kb a frame at 100+fps is...great!!! Amazing.
 
