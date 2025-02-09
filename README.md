@@ -8,13 +8,9 @@ The doom-fire algo can push upwards of 180k a frame - results may vary!  It is, 
 As a comparison, this is the younger sibling of a node variant ( https://github.com/const-void/DOOM-fire-node ).
 
 # INSTALL
-Each MR tested on OX Sequia 15.2 / M1 w/zig 0.13 on OSX Kitty, VS Code, Alacritty, Terminal.
-
-EDIT: Now tested on Artix Linux - links against libc to get the size of the TTY.
-
-EDIT: 2025 - Windows does not currently function properly, though it will compile, it may panic.
-
-This means that the program does rely on libc, this shouldn't be a problem.
+Each MR tested on MacOS Sequia 15.3 / M1 w/zig 0.13 on OSX Kitty, VS Code, Alacritty, Terminal.
+Many MR tested on Windows 10 / Intel, with Microsoft Terminal, CMD.EXE, PowerShell.
+Linux tests are c/o the wonderful community who help identify...and repair...cross platform issues!
 
 ```
 $ git clone https://github.com/const-void/DOOM-fire-zig/
@@ -22,18 +18,44 @@ $ cd DOOM-fire-zig
 $ zig build run
 ...
 ```
+Build Requirements:
+* all platforms - libc
+* all platforms - x64 (for now)
+* windows - kernel32
 
 # Results
-* iTerm.app - ok
-* kitty.app (OSX) - great
-* Terminal.app (OSX) - poor -- seems to drop framerates 
-* VS Code (Linux, OSX) - great
-* Warp - great
-* Alacritty (artix linux, OSX) - great
-* VS Code (Windows) - poor FPS 
-* CMD, Powershell (Windows) - compiles but fails to render DOOMFire.
- 
-Note: Currently uses `u64` and thus is limited to x64 architecture, for now. In the future, will convert to a  comptime approach for greater flexibility.   
+Start your favorite terminal, maximize it, then launch DOOM-fire-zig! Test your terminal's might. 
+
+Definitions:
+<=   5 avg fps = very poor
+<=  24 avg fps = poor
+   ... avg fps = ok
+>= 100 avg fps = great
+
+| Terminal           | Linux  | MacOS        | Windows          |
+| ------------------ | ------ | ------------ | ---------------- |
+| Alacritty          | great? | great        | very poor (4pfs) |
+| Apple Terminal.app | -      | poor (? fps) | -                |
+| CMD.EXE            | -      | -            | poor (20fps)     |
+| iterm.app          | -      | ok           | -                |
+| kitty.app          | -      | great        | -                |
+| Microsoft Terminal | -      | -            | great            |
+| Powershell         | -      | -            | poor (20fps)     |
+| VS Code            | great  | great        | poor (20fps)     |
+| Warp               | great? | great        | -                |
+| WezTerm            | ?      | ?            | ok               |
+
+Microsoft Note: It appears Windows terminal performance is a function of the underlying console; if a terminal is using the default Microsoft console, such as used by CMD.EXE, Windows fps appears to be gated.
+
+Apple Note: The Apple terminal reports avg 30-40 fps, however visually, it appears to be drop frames, creating a choppy result.
+
+## Results are for fun, not disappointment
+As our approach is unscientific, we only indicate avg fps for underpeformers; results will vary based on - os+platform, GPU, terminal size (function of font size, monitor resolution, zoom %, etc), specific terminal configuration -- even zig itself is a factor. 
+
+We don't test every terminal with each migration request; the majority come from the community. One report is enough! This is for fun, to encourage terminals to be great out-of-the-box, and us to learn - to explore what our terminals can do, and share configuration that gives fps a boost (and potential cost elsewhere...).
+
+180kb a frame at 100+fps is...great!!! Amazing.
+
 
 # Inspiration / Credits
 * Thanks to contributors for your support!
