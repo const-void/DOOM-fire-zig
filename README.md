@@ -8,10 +8,6 @@ The doom-fire algo can push upwards of 180k a frame - results may vary!  It is, 
 As a comparison, this is the younger sibling of a node variant ( https://github.com/const-void/DOOM-fire-node ).
 
 # INSTALL
-* Each MR tested on MacOS Sequia 15.3 / M1 w/zig 0.13 on OSX Kitty, VS Code, Alacritty, Terminal.
-* Many MR tested on Windows 10 / Intel, with Microsoft Terminal, CMD.EXE, PowerShell.
-* Linux tests are c/o the wonderful community who help identify...and repair...cross platform issues!
-
 ```
 $ git clone https://github.com/const-void/DOOM-fire-zig/
 $ cd DOOM-fire-zig
@@ -22,6 +18,12 @@ Build Requirements:
 * all platforms - libc
 * all platforms - x64 (for now)
 * windows - kernel32
+
+Merge Request (MR) Validation:
+* Each MR tested on MacOS Sequia 15.3 / M1 w/zig 0.13 on MacOS Kitty, VS Code, Alacritty.
+* Many MR tested on Windows 10 / Intel, with Microsoft Terminal, CMD.EXE, PowerShell.
+* Linux tests are c/o the wonderful community who help identify...and repair...cross platform issues!
+
 
 # Results
 Start your favorite terminal, maximize it, then launch DOOM-fire-zig! Test your terminal's might. 
@@ -47,10 +49,10 @@ Definitions:
 | Warp               | great? | great        | -                |
 | WezTerm            | ?      | ?            | ok               |
 
-## Microsoft Note
+### Microsoft Note
 It appears Windows terminal performance is a function of the underlying console; when a terminal is using the default Microsoft console, such as used by CMD.EXE, Windows fps appears to be gated.
 
-## Apple Note
+### Apple Note
 The Apple terminal reports avg 30-40 fps, however visually, it appears to be drop frames, resulting in a very choppy effect.
  
 ## Results are for fun
