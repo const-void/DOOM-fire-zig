@@ -48,15 +48,15 @@ Definitions:
 | WezTerm            | ?      | ?            | ok               |
 
 ## Microsoft Note
-It appears Windows terminal performance is a function of the underlying console; if a terminal is using the default Microsoft console, such as used by CMD.EXE, Windows fps appears to be gated.
+It appears Windows terminal performance is a function of the underlying console; when a terminal is using the default Microsoft console, such as used by CMD.EXE, Windows fps appears to be gated.
 
 ## Apple Note
-The Apple terminal reports avg 30-40 fps, however visually, it appears to be drop frames, creating a choppy result.
+The Apple terminal reports avg 30-40 fps, however visually, it appears to be drop frames, resulting in a very choppy effect.
+ 
+## Results are for fun
+As our approach is unscientific, we only indicate avg fps for underpeformers, to set expectations; results will vary based on - os+platform, GPU, terminal size (function of font size, monitor resolution, zoom %, etc), specific terminal configuration, terminal version -- even zig itself is a factor. 
 
-## Results are for fun, not disappointment
-As our approach is unscientific, we only indicate avg fps for underpeformers; results will vary based on - os+platform, GPU, terminal size (function of font size, monitor resolution, zoom %, etc), specific terminal configuration -- even zig itself is a factor. 
-
-We don't test every terminal with each migration request; the majority come from the community. One report is enough! This is for fun, to encourage terminals to be great out-of-the-box, and us to learn - to explore what our terminals can do, and share configuration that gives fps a boost (at potential cost elsewhere...).
+We don't test every terminal with each merge request; the majority come from the community. One report is enough! This is for fun, to encourage terminals to be great out-of-the-box, and us to learn - to explore what our terminals can do, and share configuration that gives fps a boost (at potential cost elsewhere...).
 
 180kb a frame at 100+fps is...great!!! Amazing.
 
