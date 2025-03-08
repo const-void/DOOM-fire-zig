@@ -20,7 +20,7 @@ Build Requirements:
 * windows - kernel32
 
 Merge Request (MR) Validation:
-* Each MR tested on MacOS Sequia 15.3 / M1 w/zig 0.13 on MacOS Kitty, VS Code, Alacritty.
+* Each MR tested on MacOS Sequia 15.3 / M1 w/zig 0.14 on MacOS Kitty, VS Code, Alacritty.
 * Many MR tested on Windows 10 / Intel, with Microsoft Terminal, CMD.EXE, PowerShell.
 * Linux tests are c/o the wonderful community who help identify...and repair...cross platform issues!
 
@@ -74,6 +74,65 @@ We don't test every terminal with each merge request; the majority come from the
 * term sz, zig - https://github.com/jessrud/zbox/blob/master/src/prim.zig
 * osx term sz  - https://github.com/sindresorhus/macos-term-size/blob/main/term-size.c
 * px char      - https://github.com/cronvel/terminal-kit
+
+# Repo Guidance
+Find the list of releases here: https://github.com/const-void/DOOM-fire-zig/releases
+* YYYY.<#> Zig #.## <Feature>
+
+Find the list of branches here:  https://github.com/const-void/DOOM-fire-zig/branches
+* master -- the most recent 'working' code base; tries to be compatible with latest released stable zig version.
+* zig-#.##  --  compatible with specific zig release (two active - current and future)...historical zig versions will be stale.
+* <issue#>-zig-#.##-<issue> -- branches associated with resolving a reported issue.
+
+## Branch and Merge Request Detail
+Repository guidance is a bit like the Pirate's Code.  More akin to a set of guidelines, really.
+
+This repo has been around since 2022, and as zig has changed, so has repository philosophy, from YOLO/anything goes, to a bit more discipline, primarily for clarity for contributions; over the years we have learned that the precise version of zig version is *everything*.  
+
+From build, to std, to language feature.
+
+Later zig versions tend to break compatibility vs prior zig versions; as a result, the precise zig version becomes very important, as the most recent zig version often requires code that simply won't build in prior versions 
+
+### IMPACT: Repository branching is to tied to zig version.
+Repository intention is for compatibility with two zig versions - one branch for current "stable" zig version, as well as a branch for future development version of zig.  
+
+Back porting updates from DOOM-fire-zig / zig.current to zig.prior is too time consuming, the juice isn't worth the squeeze.   However, starting with zig-0.13,  repository philosophy will enable adventurers into this domain!   
+
+Branches are as follows:
+* zig-0.13: historical
+* zig-0.14: zig current version
+* zig-0.15: zig dev version
+
+### Ultimately, the time and attention of a contributor is most important.
+Always, submit a merge request and the particulars can be sorted out at the point of merge.  This whole repository is for fun, so the intention is to keep guidance light-weight and easy.
+
+### How to submit a merge request
+Each zig version has it's own branch; the stable version of zig will be merged with main aka master; once a given merge with main has proven it's stability, it will get released to mark the commits as a point in time. 
+
+To fix an issue or add enhancement, in github, please fork the home repository into your own github identity.  From there, checkout the relevant zig branch from your fork, make your updates, commit back to your repo.  When you are happy, please submit your merge request back to this repository, requesting a merge with the relevant zig version.
+
+```zsh
+$ git clone https://github.com/<your-github-id>/DOOM-fire-zig/
+$ cd DOOM-fire-zig
+$ zig build run
+$ git checkout zig-0.##
+$ ... code ...
+$ git commit -m "<semantic commit>"
+```
+
+### zig.current to zig.future
+After a merge to zig.current branch, after some testing, I will periodically merge with main and zig.future.  At some point in the next ten+ years, main and zig.future will be more similar than not!
+
+## Github Releases Detail
+Releases are used to identify a 'moment in time' snapshot. Release tags are tied to the year so you can compare your local workstation file timestamps to the release tag and have a general picture of how long it has been since you have cloned/fetched/pulled etc.
+
+Releases are created for the current version of zig, for clarity.
+
+* DOOM-Fire-zig endeavors to be updated at least annually, usually around a holiday when I have time.
+* Releases and tags are "snapshots" in time of the code base/repo, a way to plumb the history and depths of time, as DOOM-Fire-zig iterates and evolves across zig updates. 
+* Each annual update will have a tag of YYYY.1, with subsequent tags incrementing the "minor" indicator -> YYYY.2, YYYY.3.  
+* Each tag will have a release associated with it.  The release name will be YYYY.x Zig #.## - Major Feature
+
 
 # License
 Copyright 2022-2025, const-void, released under GPL3.
