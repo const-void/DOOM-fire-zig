@@ -1,7 +1,7 @@
 // TEST YOUR (TTY) MIGHT: DOOM FIRE!
-// (c) 2022, 2023, 2024 const void*
+// (c) 2022, 2023, 2024, 2025  const void*
 //
-// Copy/paste as it helps!
+// Please see GPL3 license at bottom of source.
 //
 const builtin = @import("builtin");
 const std = @import("std");
@@ -10,12 +10,51 @@ const allocator = std.heap.page_allocator;
 
 var stdout: std.fs.File.Writer = undefined;
 var stdin: std.fs.File.Reader = undefined;
+var g_tty_win: win32.HANDLE = undefined;
 
 ///////////////////////////////////
-// Tested on M1 osx12.1 + Artix Linux.
+// Tested on M1 osx15.3, Windows 10 on Intel + Artix Linux.
 //   fast  - vs code terminal
 //   slow  - Terminal.app
 ///////////////////////////////////
+
+// TODO
+// - How can we better offer cross platform support for multiple bit architectures?
+//   Currently memory is fixed w/x64 unsigned integers to support high res displays.
+//   This should probably be a comptime setting so that the integer size can be identified
+//   based on platform (x64 vs x86 vs ... ).
+// -  windows kernel32 *W API expect UTF16; this is very difficult as zig uses UTF8. Converting from utf8 to uf16 seems like 
+//    a lot of work, so for now, windows doesn't get fancy UTF8 glyphs.  
+
+// Windows Notes
+// - Bugs are my own (const void*)
+// 
+// - Windows Console Info contains two key pieces of information - the size, which is not the WINDOW SIZE, but the BUFFER size.  
+//   For rendering graphics, we do not want to use the buffer size--while good to know, it is unhelpful. Windows Console Info
+//   also includes the window coordinates, assumably the coordinates of the buffer that is displayed; this means, to get the
+//   potential terminal size, we have to calculate the width and height of the view buffer.  I am picturing a massive canvas,
+//   the buffer, and the window size is a 3x5" notecard overlay of that canvas.  We don't need more much more information,
+//   but it is interesting to think how scrollbars could impact the display.
+// 
+// - Windows did not seem to enjoy newline characters - \n is not good. 
+// 
+//   When the console was allowed to treat \n as a newline character, it did not appear as if the ansi cursor movement sequences
+//   were respected, with some sort of infinite scroll.  This may have been due to something else entirely.
+//
+//   When the console was told to ignore newline characters, now ... cursor movement worked, but now ... \n was totally
+//   ignored, as advertised.
+//
+//   No matter.  We craft our own, ANSI equivalent of new line: 
+//      1. Fill the end of the line with the current color
+//      2. Go to the first character of the next line, which we do by moving the cursor down one line, then to the first character.
+//
+//     IMPACT: Never use \n in a string, always use emit(nl)
+//
+// - Windows seems to want to use UTF16 to render UTF8 glyphs; while the "Ansi" WriteConsoleA function accepts 
+//   utf8 strings, which zig groks natively; sadly, WriteConsoleA seems to only render Ansi characters.  the "Wide"
+//   WriteConsoleW function accepts utf16 strings, however zig uses utf8 strings. I am unsure what code page to use
+//   for ut16 outputs...is CP_UTF8 good enough? I am shelving the complexities of this problem...for now.  
+//
 
 ///////////////////////////////////
 // credits / helpful articles / inspirations
@@ -30,13 +69,22 @@ var stdin: std.fs.File.Reader = undefined;
 // term sz, zig - https://github.com/jessrud/zbox/blob/master/src/prim.zig
 // osx term sz  - https://github.com/sindresorhus/macos-term-size/blob/main/term-size.c
 // px char      - https://github.com/cronvel/terminal-kit
+// win          - https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
 
 ///////////////////////////////////
 // zig hints
 ///////////////////////////////////
-// do or do not - there is no try: catch unreachable instead of try on memory / file io
-//              - put all try to initXXX()
-// for (i=0; i<MAX; i++) { ... } => var i=0; while (i<MAX) : (i+=1) { ... }
+// `try` everywhere and !<return type>
+//
+// External Windows references are 100% contained inside win32 structure. 
+//
+// cross platform constants:  const CONSTANT =  if (builtin.os.tag == .windows ) <windows constant> else <linux/macos constant>
+// 
+// cross platform functions: OS type is function suffix 
+//     pub fn someFuncWin() !void { ... Windows specific logic ... }
+//     pub fn someFuncLinux() !void { ... Linux/MacOS specific logic... }
+//     pub fn someFunc() !void { return if (buildin.os.tag == .windows) try someFuncWin() else try someFuncLinux(); }
+//
 
 ///////////////////////////////////
 // zig helpers
@@ -59,19 +107,29 @@ pub fn initRNG() !void {
 }
 
 // print
-pub fn emit(s: []const u8) void {
-    const sz = stdout.write(s) catch unreachable;
-    if (sz == 0) {
+pub fn emit(s: []const u8) !void {
+    if (builtin.os.tag == .windows) {
+        var sz: win32.DWORD = 0;
+
+        const rv = win32.WriteConsoleA(g_tty_win, s.ptr, @intCast(s.len), &sz, undefined);
+        if (rv == 0) {
+            return;
+        }
         return;
-    } // cauze I c
-    return;
+    } else {
+        const sz = try stdout.write(s);
+        if (sz == 0) {
+            return;
+        } // cauze I c
+        return;
+    }
 }
 
 // format a string then print
-pub fn emitFmt(comptime s: []const u8, args: anytype) void {
-    const t = std.fmt.allocPrint(allocator, s, args) catch unreachable;
+pub fn emitFmt(comptime s: []const u8, args: anytype) !void {
+    const t = try std.fmt.allocPrint(allocator, s, args);
     defer allocator.free(t);
-    emit(t);
+    try emit(t);
 }
 
 ///////////////////////////////////
@@ -91,16 +149,27 @@ var term_sz: TermSz = .{ .height = 0, .width = 0 }; // set via initTermSz
 const esc = "\x1B";
 const csi = esc ++ "[";
 
-const cursor_save = esc ++ "7";
-const cursor_load = esc ++ "8";
+const line_prior = csi ++ "1F"; //prior line
+const line_next = csi ++ "1E"; //next line
+const line_start = csi ++ "1G"; //carriage return
+const line_new = line_clear_to_eol ++ line_next ++ line_start;  //new line
+const line_up = line_prior ++ line_start; //pup one
+const nl = if (builtin.os.tag == .windows) line_new else "\n";
+
+const cursor_save = esc ++ "7"; // or csi++s
+const cursor_load = esc ++ "8"; // or csi++u
 
 const cursor_show = csi ++ "?25h"; //h=high
 const cursor_hide = csi ++ "?25l"; //l=low
 const cursor_home = csi ++ "1;1H"; //1,1
 
+const screen_reset = csi ++ "!p";
 const screen_clear = csi ++ "2J";
 const screen_buf_on = csi ++ "?1049h"; //h=high
 const screen_buf_off = csi ++ "?1049l"; //l=low
+
+const char_set_ascii = esc ++ "(B"; // ascii borders
+const char_set_ansi = esc ++ "(0"; // ansi aka DEC borders
 
 const line_clear_to_eol = csi ++ "0K";
 
@@ -114,12 +183,10 @@ const color_def = color_bg_def ++ color_fg_def;
 const color_italic = csi ++ "3m";
 const color_not_italic = csi ++ "23m";
 
-const term_on = screen_buf_on ++ cursor_hide ++ cursor_home ++ screen_clear ++ color_def;
+const term_on = screen_buf_on ++ cursor_hide ++ cursor_home ++ color_def ++ screen_clear;
 const term_off = screen_buf_off ++ cursor_show ++ nl;
 
-//handy characters
-const nl = "\n";
-const sep = '▏';
+const sep = if (builtin.os.tag==.windows) "|" else "▏";
 
 //colors
 const MAX_COLOR = 256;
@@ -131,78 +198,147 @@ var bg: [MAX_COLOR][]u8 = undefined;
 //// functions
 
 // cache fg/bg ansi codes
-pub fn initColor() void {
+pub fn initColor() !void {
     var color_idx: u32 = 0;
     while (color_idx < MAX_COLOR) : (color_idx += 1) {
-        fg[color_idx] = std.fmt.allocPrint(allocator, "{s}38;5;{d}m", .{ csi, color_idx }) catch unreachable;
-        bg[color_idx] = std.fmt.allocPrint(allocator, "{s}48;5;{d}m", .{ csi, color_idx }) catch unreachable;
+        fg[color_idx] = try std.fmt.allocPrint(allocator, "{s}38;5;{d}m", .{ csi, color_idx });
+        bg[color_idx] = try std.fmt.allocPrint(allocator, "{s}48;5;{d}m", .{ csi, color_idx });
     }
 }
 
 //todo - free bg/fg color ache
 // defer freeColor(); just too lazy right now.
 
-//get terminal size given a tty
-pub fn getTermSz(tty: std.posix.fd_t) !TermSz {
-    if (builtin.os.tag == .windows) {
-        //Microsoft Windows Case
-        var info: win32.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        if (0 == win32.GetConsoleScreenBufferInfo(tty, &info)) switch (std.os.windows.kernel32.GetLastError()) {
-            else => |e| return std.os.windows.unexpectedError(e),
-        };
-        return TermSz{
-            .height = @intCast(info.srWindow.Bottom - info.srWindow.Top + 1),
-            .width = @intCast(info.srWindow.Right - info.srWindow.Left + 1),
-        };
-    } else {
-        //Linux-MacOS Case
-        var winsz = std.c.winsize{ .col = 0, .row = 0, .xpixel = 0, .ypixel = 0 };
-        const rv = std.c.ioctl(tty, TIOCGWINSZ, @intFromPtr(&winsz));
-        const err = std.posix.errno(rv);
+pub fn getTermSzWin() !TermSz {
+    //Microsoft Windows Case
+    var info: win32.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+  
+    if (0 == win32.GetConsoleScreenBufferInfo(g_tty_win, &info)) switch (std.os.windows.kernel32.GetLastError()) {
+        else => |e| return std.os.windows.unexpectedError(e),
+    };
 
-        if (rv >= 0) {
-            return TermSz{ .height = winsz.row, .width = winsz.col };
+    return TermSz{
+        .height = @intCast(info.srWindow.Bottom - info.srWindow.Top + 1),
+        .width = @intCast(info.srWindow.Right - info.srWindow.Left + 1),
+    };
+}
+
+pub fn getTermSzLinux() !TermSz {
+    //Linux-MacOS Case
+
+    //base case - invoked from cmd line
+    const tty_nix = stdout.context.handle;
+    var winsz = std.c.winsize{ .ws_col = 0, .ws_row = 0, .ws_xpixel = 0, .ws_ypixel = 0 };
+    const rv = std.c.ioctl(tty_nix, TIOCGWINSZ, @intFromPtr(&winsz));
+    const err = std.posix.errno(rv);
+
+    if (rv >= 0) {
+        if (winsz.ws_row == 0 or winsz.ws_col == 0) { // ltty IOCTL failed ie in lldb
+            //alt case - invoked from inside lldb
+            var lldb_tty_nix = try std.fs.cwd().openFile("/dev/tty", .{});
+            defer lldb_tty_nix.close();
+
+            var lldb_winsz = std.c.winsize{ .ws_col = 0, .ws_row = 0, .ws_xpixel = 0, .ws_ypixel = 0 };
+            const lldb_rv = std.c.ioctl(lldb_tty_nix.handle, TIOCGWINSZ, @intFromPtr(&lldb_winsz));
+            const lldb_err = std.posix.errno(lldb_rv);
+
+            if (lldb_rv >= 0) {
+                return TermSz{ .height = lldb_winsz.ws_row, .width = lldb_winsz.ws_col };
+            } else {
+                std.process.exit(0);
+                //TODO this is a pretty terrible way to handle issues...
+                return std.posix.unexpectedErrno(lldb_err);
+            }
         } else {
-            std.process.exit(0);
-            //TODO this is a pretty terrible way to handle issues...
-            return std.posix.unexpectedErrno(err);
+            return TermSz{ .height = winsz.ws_row, .width = winsz.ws_col };
         }
+    } else {
+        std.process.exit(0);
+        //TODO this is a pretty terrible way to handle issues...
+        return std.posix.unexpectedErrno(err);
     }
 }
 
+//get terminal size
+pub fn getTermSz() !TermSz {
+    return if (builtin.os.tag == .windows) try getTermSzWin() else try getTermSzLinux();
+}
+
+
 pub fn initTermSize() !void {
-    term_sz = try getTermSz(stdout.context.handle);
+    term_sz = try getTermSz();
+}
+
+// Windows specific terminal initialization
+pub fn initTermWin() !void {
+    // credit: n-prat ( https://github.com/const-void/DOOM-fire-zig/issues/17#issuecomment-2587481269 )
+    var consoleMode: win32.DWORD = 0;
+  
+    // pull tty from std.os.windows
+    g_tty_win = std.os.windows.GetStdHandle(win32.STD_OUTPUT_HANDLE) catch return std.os.windows.unexpectedError(std.os.windows.kernel32.GetLastError());
+    
+    //get console mode
+    if (0 == win32.GetConsoleMode(g_tty_win, &consoleMode)) switch (std.os.windows.kernel32.GetLastError()) {
+        else => |e| return std.os.windows.unexpectedError(e),
+    };
+
+    // activate ANSI power!
+    consoleMode |= win32.ENABLE_VIRTUAL_TERMINAL_PROCESSING | win32.DISABLE_NEWLINE_AUTO_RETURN;
+    //win32.ENABLE_PROCESSED_OUTPUT does not appear to be needed
+
+    // apply updated consoleMode to console
+    if (0 == win32.SetConsoleMode(g_tty_win, consoleMode)) switch (std.os.windows.kernel32.GetLastError()) {
+        else => |e| return std.os.windows.unexpectedError(e),
+    };
+
+    // todo - UINT WINAPI GetConsoleCP(void); https://learn.microsoft.com/en-us/windows/console/getconsolecp
+    //   g_cur_consolecp = win32.GetConsoleCP();
+    //   then, in complete, restore code page.
+
+    // enable UTF8
+    if (0 == win32.SetConsoleOutputCP(win32.CP_UTF8)) switch (std.os.windows.kernel32.GetLastError()) {
+        else => |e| return std.os.windows.unexpectedError(e),
+    };
 }
 
 pub fn initTerm() !void {
-    emit(term_on);
-    initColor();
+    try initColor();
+
+    if (builtin.os.tag == .windows) { try initTermWin(); }
+
     try initTermSize();
     try initRNG();
+
+    try emit(term_on);
+    if (builtin.os.tag == .windows) {
+        //try emit(csi ++ "0;0r");
+        try emit(char_set_ascii);
+    }
 }
 
 // initTerm(); defer complete();
-pub fn complete() void {
+pub fn complete() !void {
     //todo -- free colors
-    emit(term_off);
-    emit("Complete!\n");
+    //todo if win, completeWin() -> restore code page
+    try emit(term_off);
+    try emit("Complete!"++nl);
 }
 
 /////////////////
 // doom-fire
 /////////////////
 
-pub fn pause() void {
+pub fn pause() !void {
     //todo - poll / read a keystroke w/out echo, \n etc
 
-    emit(color_reset);
-    emit("Press return to continue...");
+    try emit(color_reset);
+    try emit("Press return to continue...");
     var b: u8 = undefined;
     b = stdin.readByte() catch undefined;
 
     if (b == 'q') {
         //exit cleanly
-        complete();
+        try complete();
         std.process.exit(0);
     }
 }
@@ -214,7 +350,7 @@ pub fn pause() void {
 ///
 
 // do nothing if term sz is big enough
-pub fn checkTermSz() void {
+pub fn checkTermSz() !void {
     const min_w = 120;
     const min_h = 22;
     var w_ok = true;
@@ -234,53 +370,53 @@ pub fn checkTermSz() void {
         //screen is too small
 
         //red text
-        emit(fg[9]);
+        try emit(fg[9]);
 
         //check conditions
         if (w_ok and !h_ok) {
-            emitFmt("Screen may be too short - height is {d} and need {d}.", .{ term_sz.height, min_h });
+            try emitFmt("Screen may be too short - height is {d} and need {d}.", .{ term_sz.height, min_h });
         } else if (!w_ok and h_ok) {
-            emitFmt("Screen may be too narrow - width is {d} and need {d}.", .{ term_sz.width, min_w });
+            try emitFmt("Screen may be too narrow - width is {d} and need {d}.", .{ term_sz.width, min_w });
         } else if (term_sz.width == 0) {
             // IOCTL succesfully failed!  We believe the call to retrieve terminal dimensions succeeded,
             // however our structure is zero.
-            emit(bg[1]);
-            emit(fg[15]);
-            emitFmt("Call to retreive terminal dimensions may have failed" ++ nl ++
+            try emit(bg[1]);
+            try emit(fg[15]);
+            try emitFmt("Call to retreive terminal dimensions may have failed" ++ nl ++
                 "Width is {d} (ZERO!) and we need {d}." ++ nl ++
                 "We will allocate 0 bytes of screen buffer, resulting in immediate failure.", .{ term_sz.width, min_w });
-            emit(color_reset);
+            try emit(color_reset);
         } else if (term_sz.height == 0) {
             // IOCTL succesfully failed!  We believe the call to retrieve terminal dimensions succeeded,
             // however our structure is zero.
-            emit(bg[1]);
-            emit(fg[15]);
-            emitFmt("Call to retreive terminal dimensions may have failed" ++ nl ++
+            try emit(bg[1]);
+            try emit(fg[15]);
+            try emitFmt("Call to retreive terminal dimensions may have failed" ++ nl ++
                 "Height is {d} (ZERO!) and we need {d}." ++ nl ++
                 "We will allocate 0 bytes of screen buffer, resulting in immediate failure.", .{ term_sz.height, min_h });
-            emit(color_reset);
+            try emit(color_reset);
         } else {
-            emitFmt("Screen is too small - have {d} x {d} and need {d} x {d}", .{ term_sz.width, term_sz.height, min_w, min_h });
+            try emitFmt("Screen is too small - have {d} x {d} and need {d} x {d}", .{ term_sz.width, term_sz.height, min_w, min_h });
         }
 
-        emit(nl);
-        emit(nl);
+        try emit(nl);
+        try emit(nl);
 
         //warn user w/white on red
-        emit(bg[1]);
-        emit(fg[15]);
-        emit("There may be rendering issues on the next screen; to correct, <q><enter>, resize and try again.");
-        emit(line_clear_to_eol);
-        emit(color_reset);
-        emit("\n\nContinue?\n\n");
+        try emit(bg[1]);
+        try emit(fg[15]);
+        try emit("There may be rendering issues on the next screen; to correct, <q><enter>, resize and try again.");
+        try emit(line_clear_to_eol);
+        try emit(color_reset);
+        try emit(nl++nl++"Continue?"++nl++nl);
 
         //assume ok...pause will exit for us.
-        pause();
+        try pause();
 
         //clear all the warning text and keep on trucking!
-        emit(color_reset);
-        emit(cursor_home);
-        emit(screen_clear);
+        try emit(color_reset);
+        try emit(cursor_home);
+        try emit(screen_clear);
     }
 }
 
@@ -289,46 +425,52 @@ pub fn checkTermSz() void {
 /// Since user terminals vary in capabilities, handy to have a screen that renders ACTUAL colors
 /// and exercises various terminal commands prior to DOOM fire.
 ///
-pub fn showTermSz() void {
+pub fn showTermSz() !void {
     //todo - show os, os ver, zig ver
-    emitFmt("Screen size: {d}w x {d}h\n\n", .{ term_sz.width, term_sz.height });
+    try emit(color_def); // this should probably be windows only
+    try emitFmt("Screen size: {d}w x {d}h", .{ term_sz.width, term_sz.height });
+    try emit(nl);  //window doesn't appear to like \n
+    try emit(nl);
 }
 
-pub fn showLabel(label: []const u8) void {
-    emitFmt("{s}{s}:\n", .{ color_def, label });
+pub fn showLabel(label: []const u8) !void {
+    try emit(color_def);
+    try emitFmt("{s}{s}:", .{ color_def, label });
+    try emit(nl);
 }
 
-pub fn showStdColors() void {
-    showLabel("Standard colors");
+pub fn showStdColors() !void {
+    try showLabel("Standard colors");
 
     //first 8 colors (standard)
-    emit(fg[15]);
+    try emit(fg[15]);
     var color_idx: u8 = 0;
     while (color_idx < 8) : (color_idx += 1) {
-        emit(bg[color_idx]);
+        try emit(bg[color_idx]);
         if (color_idx == 7) {
-            emit(fg[0]);
+            try emit(fg[0]);
         }
-        emitFmt("{u} {d:2}  ", .{ sep, color_idx });
+        try emitFmt("{s} {d:2}  ", .{ sep, color_idx });
     }
-    emit(nl);
+    try emit(color_def);
+    try emit(nl);
 
     //next 8 colors ("hilight")
-    emit(fg[15]);
+    try emit(fg[15]);
     while (color_idx < 16) : (color_idx += 1) {
-        emit(bg[color_idx]);
+        try emit(bg[color_idx]);
         if (color_idx == 15) {
-            emit(fg[0]);
+            try emit(fg[0]);
         }
-        emitFmt("{u} {d:2}  ", .{ sep, color_idx });
+        try emitFmt("{s} {d:2}  ", .{ sep, color_idx });
     }
-
-    emit(nl);
-    emit(nl);
+    try emit(color_def);
+    try emit(nl);
+    try emit(nl);
 }
 
-pub fn show216Colors() void {
-    showLabel("216 colors");
+pub fn show216Colors() !void {
+    try showLabel("216 colors");
 
     var color_addendum: u8 = 0;
     var bg_idx: u8 = 0;
@@ -354,48 +496,51 @@ pub fn show216Colors() void {
             }
 
             // display color
-            emit(bg[bg_idx]);
-            emit(fg[fg_idx]);
-            emitFmt("{d:3}", .{bg_idx});
+            try emit(bg[bg_idx]);
+            try emit(fg[fg_idx]);
+            try emitFmt("{d:3}", .{bg_idx});
         }
-        emit(nl);
+        try emit(color_def);
+        try emit(nl);
     }
-    emit(nl);
+    try emit(color_def);
+    try emit(nl);
 }
 
-pub fn showGrayscale() void {
-    showLabel("Grayscale");
+pub fn showGrayscale() !void {
+    try showLabel("Grayscale");
 
     var fg_idx: u8 = 15;
-    emit(fg[fg_idx]);
+    try emit(fg[fg_idx]);
 
     var bg_idx: u32 = 232;
     while (bg_idx < 256) : (bg_idx += 1) {
         if (bg_idx > 243) {
             fg_idx = 0;
-            emit(fg[fg_idx]);
+            try emit(fg[fg_idx]);
         }
 
-        emit(bg[bg_idx]);
-        emitFmt("{u}{d} ", .{ sep, bg_idx });
+        try emit(bg[bg_idx]);
+        try emitFmt("{s}{d} ", .{ sep, bg_idx });
     }
-    emit(nl);
+    try emit(color_def);
+    try emit(nl);
 
     //cleanup
-    emit(color_def);
-    emit(nl);
+    try emit(color_def);
+    try emit(nl);
 }
 
-pub fn scrollMarquee() void {
+pub fn scrollMarquee() !void {
     //marquee - 4 lines of yellowish background
     const bg_idx: u8 = 222;
-    const marquee_row = line_clear_to_eol ++ nl;
+    const marquee_row = if (builtin.os.tag==.windows) nl else line_clear_to_eol ++ nl;
     const marquee_bg = marquee_row ++ marquee_row ++ marquee_row ++ marquee_row;
 
     //init marquee background
-    emit(cursor_save);
-    emit(bg[bg_idx]);
-    emit(marquee_bg);
+    try emit(cursor_save); // save character position
+    try emit(bg[bg_idx]);  // set yellow background
+    try emit(marquee_bg);  // paint four rows 
 
     //quotes - will confirm animations are working on current terminal
     const txt = [_][]const u8{ "  Things move along so rapidly nowadays that people saying " ++ color_italic ++ "It can't be done" ++ color_not_italic ++ " are always being interrupted", "  by somebody doing it.                                                                    " ++ color_italic ++ "-- Puck, 1902" ++ color_not_italic, "  Test your might!", "  " ++ color_italic ++ "-- Mortal Kombat" ++ color_not_italic, "  How much is the fish?", "             " ++ color_italic ++ "-- Scooter" ++ color_not_italic };
@@ -413,18 +558,18 @@ pub fn scrollMarquee() void {
         fade_idx = 0;
         while (fade_idx < fade_len) : (fade_idx += 1) {
             //reset to 1,1 of marquee
-            emit(cursor_load);
-            emit(bg[bg_idx]);
-            emit(nl);
+            try emit(cursor_load);
+            try emit(bg[bg_idx]);
+            try emit(nl);
 
             //print marquee txt
-            emit(fg[fade_seq[fade_idx]]);
-            emit(txt[txt_idx * 2]);
-            emit(line_clear_to_eol);
-            emit(nl);
-            emit(txt[txt_idx * 2 + 1]);
-            emit(line_clear_to_eol);
-            emit(nl);
+            try emit(fg[fade_seq[fade_idx]]);
+            try emit(txt[txt_idx * 2]);
+            try emit(line_clear_to_eol);
+            try emit(nl);
+            try emit(txt[txt_idx * 2 + 1]);
+            try emit(line_clear_to_eol);
+            try emit(nl);
 
             std.time.sleep(10 * std.time.ns_per_ms);
         }
@@ -436,32 +581,33 @@ pub fn scrollMarquee() void {
         fade_idx = fade_len - 1;
         while (fade_idx > 0) : (fade_idx -= 1) {
             //reset to 1,1 of marquee
-            emit(cursor_load);
-            emit(bg[bg_idx]);
-            emit(nl);
+            try emit(cursor_load);
+            try emit(bg[bg_idx]);
+            try emit(nl);
 
             //print marquee txt
-            emit(fg[fade_seq[fade_idx]]);
-            emit(txt[txt_idx * 2]);
-            emit(line_clear_to_eol);
-            emit(nl);
-            emit(txt[txt_idx * 2 + 1]);
-            emit(line_clear_to_eol);
-            emit(nl);
+            try emit(fg[fade_seq[fade_idx]]);
+            try emit(txt[txt_idx * 2]);
+            try emit(line_clear_to_eol);
+            try emit(nl);
+            try emit(txt[txt_idx * 2 + 1]);
+            try emit(line_clear_to_eol);
+            try emit(nl);
             std.time.sleep(10 * std.time.ns_per_ms);
         }
+        try emit(nl);
     }
 }
 
 // prove out terminal implementation by rendering colors and some simple animations
-pub fn showTermCap() void {
-    showTermSz();
-    showStdColors();
-    show216Colors();
-    showGrayscale();
-    scrollMarquee();
+pub fn showTermCap() !void {
+    try showTermSz();
+    try showStdColors();
+    try show216Colors();
+    try showGrayscale();
+    try scrollMarquee();
 
-    pause();
+    try pause();
 }
 
 /// DOOM Fire
@@ -474,18 +620,18 @@ const px = "▀";
 
 //bs = buffer string
 var bs: []u8 = undefined;
-var bs_idx: u32 = 0;
-var bs_len: u32 = 0;
-var bs_sz_min: u32 = 0;
-var bs_sz_max: u32 = 0;
-var bs_sz_avg: u32 = 0;
-var bs_frame_tic: u32 = 0;
+var bs_idx: u64 = 0;
+var bs_len: u64 = 0;
+var bs_sz_min: u64 = 0;
+var bs_sz_max: u64 = 0;
+var bs_sz_avg: u64 = 0;
+var bs_frame_tic: u64 = 0;
 var t_start: i64 = 0;
 var t_now: i64 = 0;
 var t_dur: f64 = 0.0;
 var fps: f64 = 0.0;
 
-pub fn initBuf() void {
+pub fn initBuf() !void {
     //some lazy guesswork to make sure we have enough of a buffer to render DOOM fire.
     const px_char_sz = px.len;
     const px_color_sz = bg[LAST_COLOR].len + fg[LAST_COLOR].len;
@@ -494,7 +640,7 @@ pub fn initBuf() void {
     const overflow_sz: u64 = px_char_sz * 100;
     const bs_sz: u64 = screen_sz + overflow_sz;
 
-    bs = allocator.alloc(u8, bs_sz * 2) catch unreachable;
+    bs = try allocator.alloc(u8, bs_sz * 2);
     t_start = std.time.milliTimestamp();
     resetBuf();
 }
@@ -515,8 +661,8 @@ pub fn drawBuf(s: []const u8) void {
 }
 
 //print buffer to string...can be a decent amount of text!
-pub fn paintBuf() void {
-    emit(bs[0 .. bs_len - 1]);
+pub fn paintBuf() !void {
+    try emit(bs[0 .. bs_len - 1]);
     t_now = std.time.milliTimestamp();
     bs_frame_tic += 1;
     if (bs_sz_min == 0) {
@@ -537,8 +683,8 @@ pub fn paintBuf() void {
     t_dur = @as(f64, @floatFromInt(t_now - t_start)) / 1000.0;
     fps = @as(f64, @floatFromInt(bs_frame_tic)) / t_dur;
 
-    emit(fg[0]);
-    emitFmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max [ {d:.2} fps ]", .{ std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max), fps });
+    try emit(fg[0]);
+    try emitFmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max [ {d:.2} fps ]", .{ std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max), fps });
 }
 
 // initBuf(); defer freeBuf();
@@ -546,12 +692,12 @@ pub fn freeBuf() void {
     allocator.free(bs);
 }
 
-pub fn showDoomFire() void {
+pub fn showDoomFire() !void {
     //term size => fire size
-    const FIRE_H: u32 = @as(u32, @intCast(term_sz.height)) * 2;
-    const FIRE_W: u32 = @as(u32, @intCast(term_sz.width));
-    const FIRE_SZ: u32 = FIRE_H * FIRE_W;
-    const FIRE_LAST_ROW: u32 = (FIRE_H - 1) * FIRE_W;
+    const FIRE_H: u64 = @as(u64, @intCast(term_sz.height)) * 2;
+    const FIRE_W: u64 = @as(u64, @intCast(term_sz.width));
+    const FIRE_SZ: u64 = FIRE_H * FIRE_W;
+    const FIRE_LAST_ROW: u64 = (FIRE_H - 1) * FIRE_W;
 
     //colors - tinker w/palette as needed!
     const fire_palette = [_]u8{ 0, 233, 234, 52, 53, 88, 89, 94, 95, 96, 130, 131, 132, 133, 172, 214, 215, 220, 220, 221, 3, 226, 227, 230, 195, 230 };
@@ -560,11 +706,11 @@ pub fn showDoomFire() void {
 
     //screen buf default color is black
     var screen_buf: []u8 = undefined; //{fire_black}**FIRE_SZ;
-    screen_buf = allocator.alloc(u8, FIRE_SZ) catch unreachable;
+    screen_buf = try allocator.alloc(u8, FIRE_SZ);
     defer allocator.free(screen_buf);
 
     //init buffer
-    var buf_idx: u32 = 0;
+    var buf_idx: u64 = 0;
     while (buf_idx < FIRE_SZ) : (buf_idx += 1) {
         screen_buf[buf_idx] = fire_black;
     }
@@ -576,36 +722,36 @@ pub fn showDoomFire() void {
     }
 
     //reset terminal
-    emit(cursor_home);
-    emit(color_reset);
-    emit(color_def);
-    emit(screen_clear);
+    try emit(cursor_home);
+    try emit(color_reset);
+    try emit(color_def);
+    try emit(screen_clear);
 
     //scope cache ////////////////////
     //scope cache - update fire buf
-    var doFire_x: u32 = 0;
-    var doFire_y: u32 = 0;
-    var doFire_idx: u32 = 0;
+    var doFire_x: u64 = 0;
+    var doFire_y: u64 = 0;
+    var doFire_idx: u64 = 0;
 
     //scope cache - spread fire
     var spread_px: u8 = 0;
     var spread_rnd_idx: u8 = 0;
-    var spread_dst: u32 = 0;
+    var spread_dst: u64 = 0;
 
     //scope cache - frame reset
-    const init_frame = std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ cursor_home, bg[0], fg[0] }) catch unreachable;
+    const init_frame = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ cursor_home, bg[0], fg[0] });
     defer allocator.free(init_frame);
 
     //scope cache - fire 2 screen buffer
-    var frame_x: u32 = 0;
-    var frame_y: u32 = 0;
+    var frame_x: u64 = 0;
+    var frame_y: u64 = 0;
     var px_hi: u8 = fire_black;
     var px_lo: u8 = fire_black;
     var px_prev_hi = px_hi;
     var px_prev_lo = px_lo;
 
     //get to work!
-    initBuf();
+    try initBuf();
     defer freeBuf();
 
     //when there is an ez way to poll for key stroke...do that.  for now, ctrl+c!
@@ -614,7 +760,7 @@ pub fn showDoomFire() void {
 
         //update fire buf
         doFire_x = 0;
-        while (doFire_x < FIRE_W) : (doFire_x += 1) {
+        while (doFire_x < FIRE_W) : (doFire_x = doFire_x + 1) {
             doFire_y = 0;
             while (doFire_y < FIRE_H) : (doFire_y += 1) {
                 doFire_idx = doFire_y * FIRE_W + doFire_x;
@@ -674,7 +820,7 @@ pub fn showDoomFire() void {
             }
             drawBuf(nl); //is this needed?
         }
-        paintBuf();
+        try paintBuf();
         resetBuf();
     }
 }
@@ -688,35 +834,115 @@ pub fn main() anyerror!void {
     stdin = std.io.getStdIn().reader();
 
     try initTerm();
-    defer complete();
+    defer complete() catch {};
 
-    checkTermSz();
-    showTermCap();
-    showDoomFire();
+    try checkTermSz();
+    try showTermCap();
+    try showDoomFire();
 }
 
+// -- NOTE -- Keep the below aligned w/Microsoft Windows (MS WIN) specification
+//            Changes to the below that are unaligned will cause panics or strange bugs
+
 const win32 = struct {
-    pub const BOOL = i32;
-    pub const HANDLE = std.os.windows.HANDLE;
+    // --------------
+    // define MS WIN base types in zig terms
+    //    part of std.os.windows
+    pub const WORD: type = std.os.windows.WORD; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/f8573df3-a44a-4a50-b070-ac4c3aa78e3c
+    pub const BOOL: type = std.os.windows.BOOL; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/9d81be47-232e-42cf-8f0d-7a3b29bf2eb2
+    pub const HANDLE: type = std.os.windows.HANDLE; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/929187f0-f25c-4b05-9497-16b066d8a912
+    pub const SHORT: type = std.os.windows.SHORT; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/47b1e7d6-b5a1-48c3-986e-b5e5eb3f06d2
+    pub const DWORD: type = std.os.windows.DWORD; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/262627d8-3418-4627-9218-4ffe110850b2
+    pub const UINT: type = std.os.windows.UINT; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/52ddd4c3-55b9-4e03-8287-5392aac0627f
+    pub const LPVOID: type = std.os.windows.LPVOID;
+    //void https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/c0b7741b-f577-4eed-aff3-2e909df10a4d
+
+    //
+    // --------------
+    // define MS WIN constants in terms of MS WIN base types
+    //
+    // screen buffer output constants c/o https://learn.microsoft.com/en-us/windows/console/setconsolemode
+    pub const ENABLE_PROCESSED_OUTPUT: DWORD = 0x0001; // USED
+    pub const ENABLE_WRAP_AT_EOL_OUTPUT: DWORD = 0x0002;
+    pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING: DWORD = 0x0004; // USED
+    pub const DISABLE_NEWLINE_AUTO_RETURN: DWORD = 0x0008;
+    pub const ENABLE_LVB_GRID_WORLDWIDE: DWORD = 0x0010;
+
+    // https://learn.microsoft.com/en-us/windows/apps/design/globalizing/use-utf8-code-page
+    pub const CP_UTF8: UINT = 65001;
+    pub const CP_ANSI: UINT = 1252;
+
+    // https://learn.microsoft.com/en-us/windows/console/getstdhandle
+    //   part of std.os.windows
+    //   for use with https://ziglang.org/documentation/master/std/#std.os.windows.GetStdHandle
+    pub const STD_INPUT_HANDLE = std.os.windows.STD_INPUT_HANDLE;
+    pub const STD_OUTPUT_HANDLE = std.os.windows.STD_OUTPUT_HANDLE;
+    pub const STD_ERR_HANDLE = std.os.windows.STD_ERROR_HANDLE;
+
+    // --------------
+    // define MS WIN structures in terms of MS WIN base types
+    // CORD = https://learn.microsoft.com/en-us/windows/console/coord-str
     pub const COORD = extern struct {
-        X: i16,
-        Y: i16,
+        X: SHORT,
+        Y: SHORT,
     };
+
+    //SMALL_RECT = https://learn.microsoft.com/en-us/windows/console/small-rect-str
     pub const SMALL_RECT = extern struct {
-        Left: i16,
-        Top: i16,
-        Right: i16,
-        Bottom: i16,
+        Left: SHORT,
+        Top: SHORT,
+        Right: SHORT,
+        Bottom: SHORT,
     };
+
+    // CONSOLE_SCREEN_BUFFER_INFO = https://learn.microsoft.com/en-us/windows/console/console-screen-buffer-info-str
     pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
-        dwSize: COORD,
+        dwSize: COORD, //For terminal init, do not use - buffer size -- not the window size
         dwCursorPosition: COORD,
-        wAttributes: u32,
-        srWindow: SMALL_RECT,
+        wAttributes: WORD,
+        srWindow: SMALL_RECT, //For terminal init, use - window
         dwMaximumWindowSize: COORD,
     };
+
+    // -----------------
+    // define MS WIN console API in terms of MS WIN base types and MS WIN structures
+    //   reference: https://learn.microsoft.com/en-us/windows/console/console-functions
+
+    // https://learn.microsoft.com/en-us/windows/console/getconsolescreenbufferinfo
     pub extern "kernel32" fn GetConsoleScreenBufferInfo(
         hConsoleOutput: ?HANDLE,
         lpConsoleScreenBufferInfo: ?*CONSOLE_SCREEN_BUFFER_INFO,
     ) callconv(std.os.windows.WINAPI) BOOL;
+
+    // https://learn.microsoft.com/en-us/windows/console/getconsolemode
+    pub extern "kernel32" fn GetConsoleMode(hConsoleOutput: ?HANDLE, lpOutMode: ?*DWORD) callconv(std.os.windows.WINAPI) BOOL;
+
+    // https://learn.microsoft.com/en-us/windows/console/setconsolemode
+    pub extern "kernel32" fn SetConsoleMode(in_hConsoleHandle: HANDLE, in_Mode: DWORD) callconv(std.os.windows.WINAPI) BOOL;
+
+    // https://learn.microsoft.com/en-us/windows/console/setconsoleoutputcp
+    pub extern "kernel32" fn SetConsoleOutputCP(in_wCodePageID: UINT) callconv(std.os.windows.WINAPI) BOOL;
+
+    // https://learn.microsoft.com/en-us/windows/console/writeconsole
+    //   W = Wide = UTF8
+    pub extern "kernel32" fn WriteConsoleW(in_hConsoleOutput: HANDLE, in_lpBuffer: [*]const u8, in_nNumberOfCharsToWrite: DWORD, out_lpNumberOfCharsWritten: ?*DWORD, lpReserved: *void) callconv(std.os.windows.WINAPI) BOOL;
+
+    // https://learn.microsoft.com/en-us/windows/console/writeconsole
+    //   A = ASCII
+    pub extern "kernel32" fn WriteConsoleA(in_hConsoleOutput: HANDLE, in_lpBuffer: [*]const u8, in_nNumberOfCharsToWrite: DWORD, out_lpNumberOfCharsWritten: ?*DWORD, lpReserved: *void) callconv(std.os.windows.WINAPI) BOOL;
 };
+
+//LICENSE --
+//DOOM-fire-zig is free software: you can redistribute it and/or modify it under the terms of
+//the GNU General Public License as published by the Free Software Foundation, either
+//version 3 of the License, or (at your option) any later version.
+//
+//This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+//without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//
+//See the GNU General Public License for more details.
+//
+//You should have received a copy of the GNU General Public License along with this program.
+//
+//If not, see https://www.gnu.org/licenses/.
+//---------

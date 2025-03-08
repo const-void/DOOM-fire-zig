@@ -1,36 +1,67 @@
 # DOOMFIRE
 ## Test your TTY's might!
 
-![demo](https://user-images.githubusercontent.com/76228776/149635702-a331f892-7799-4f7f-a4a6-7048d3529dcf.mp4)
+https://user-images.githubusercontent.com/76228776/149635702-a331f892-7799-4f7f-a4a6-7048d3529dcf.mp4
 
 The doom-fire algo can push upwards of 180k a frame - results may vary!  It is, to my surprise, a nice TTY stress test.
 
 As a comparison, this is the younger sibling of a node variant ( https://github.com/const-void/DOOM-fire-node ).
 
 # INSTALL
-Tested on OX Sonoma 14.5 / M1 w/zig 0.13...
-
-EDIT: Now tested on Artix Linux - links against libc to get the size of the TTY.
-
-EDIT: 2024 - Now tested with Windows - Win32 Compatible, thank you [@marler8997](https://www.github.com/marler8997)!
-
-This means that the program does rely on libc, this shouldn't be a problem.
-
 ```
 $ git clone https://github.com/const-void/DOOM-fire-zig/
 $ cd DOOM-fire-zig
 $ zig build run
 ...
 ```
+Build Requirements:
+* all platforms - libc
+* all platforms - x64 (for now)
+* windows - kernel32
+
+Merge Request (MR) Validation:
+* Each MR tested on MacOS Sequia 15.3 / M1 w/zig 0.13 on MacOS Kitty, VS Code, Alacritty.
+* Many MR tested on Windows 10 / Intel, with Microsoft Terminal, CMD.EXE, PowerShell.
+* Linux tests are c/o the wonderful community who help identify...and repair...cross platform issues!
+
 
 # Results
-* iTerm.app - ok
-* kitty.app - great
-* Terminal.app - poor -- seems to drop framerates 
-* VS Code - great
-* Warp - great
-* Alacritty (artix linux) - great
-* Powershell/CMD 
+Start your favorite terminal, maximize it, then launch DOOM-fire-zig! Test your terminal's might. 
+
+| Terminal           | Linux  | MacOS        | Windows          |
+| ------------------ | ------ | ------------ | ---------------- |
+| Alacritty          | great? | great        | very poor (4pfs) |
+| Apple Terminal.app | -      | poor (? fps) | -                |
+| CMD.EXE            | -      | -            | poor (20fps)     |
+| iterm.app          | -      | ok           | -                |
+| kitty.app          | -      | great        | -                |
+| Microsoft Terminal | -      | -            | great            |
+| Powershell         | -      | -            | poor (20fps)     |
+| VS Code            | great  | great        | poor (20fps)     |
+| Warp               | great? | great        | -                |
+| WezTerm            | ?      | ?            | ok               |
+
+### Definitions
+```
+<=   5 avg fps = very poor
+<=  24 avg fps = poor
+   ... avg fps = ok
+>= 100 avg fps = great
+```
+
+### Microsoft Note
+It appears Windows terminal performance is a function of the underlying console; when a terminal is using the default Microsoft console, such as used by CMD.EXE, Windows fps appears to be gated.
+
+### MacOS / Apple Note
+The default MacOS / Apple terminal reports an avg 30-40 fps, however visually, it appears to be drop frames, resulting in a very choppy effect.
+ 
+## Results are for fun
+As our approach is unscientific, we only indicate avg fps for underpeformers, to set expectations; results will vary based on - os+platform, GPU, terminal size (function of font size, monitor resolution, zoom %, etc), specific terminal configuration, terminal version -- even zig itself is a factor. 
+
+We don't test every terminal with each merge request; the majority come from the community. One report is enough! This is for fun, to encourage terminals to be great out-of-the-box, and us to learn - to explore what our terminals can do, and share configuration that gives fps a boost (at potential cost elsewhere...).
+
+180kb a frame at 100+fps is...great!!! Amazing.
+
 
 # Inspiration / Credits
 * Thanks to contributors for your support!
@@ -44,5 +75,13 @@ $ zig build run
 * osx term sz  - https://github.com/sindresorhus/macos-term-size/blob/main/term-size.c
 * px char      - https://github.com/cronvel/terminal-kit
 
+# License
+Copyright 2022-2025, const-void, released under GPL3.
+
+DOOM-fire-zig is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with this program. If not, see https://www.gnu.org/licenses/.
 
 
