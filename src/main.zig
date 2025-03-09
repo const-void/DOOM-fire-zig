@@ -211,7 +211,11 @@ pub fn initColor() !void {
 
 pub fn getTermSzWin() !TermSz {
     //Microsoft Windows Case
-    var info: win32.CONSOLE_SCREEN_BUFFER_INFO = win32.CONSOLE_SCREEN_BUFFER_INFO();
+    var info: win32.CONSOLE_SCREEN_BUFFER_INFO = .{ .dwSize = .{ .X = 0, .Y = 0 },
+                                                    .dwCursorPosition = .{.X= 0, .Y= 0},
+                                                    .wAttributes= 0,
+                                                    .srWindow = .{ .Left = 0, .Top = 0, .Right = 0, .Bottom = 0},
+                                                    .dwMaximumWindowSize = .{.X = 0, .Y = 0} };
 
     if (0 == win32.GetConsoleScreenBufferInfo(g_tty_win, &info)) switch (std.os.windows.kernel32.GetLastError()) {
         else => |e| return std.os.windows.unexpectedError(e),
