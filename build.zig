@@ -15,12 +15,11 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable(.{
-        .name = "DOOM-fire",
+    const exe = b.addExecutable(.{ .name = "DOOM-fire", .root_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
-    });
+    }) });
 
     //libc linking
     exe.linkLibC();

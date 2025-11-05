@@ -11,7 +11,7 @@ As a comparison, this is the younger sibling of a node variant ( https://github.
 ```
 $ git clone https://github.com/const-void/DOOM-fire-zig/
 $ cd DOOM-fire-zig
-$ zig build run
+$ zig build run -Doptimize=ReleaseFast
 ...
 ```
 Build Requirements:
