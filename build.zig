@@ -17,13 +17,13 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "DOOM-fire",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
     });
-
-    //libc linking
-    exe.linkLibC();
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
