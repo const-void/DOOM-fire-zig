@@ -11,6 +11,7 @@ const allocator = std.heap.page_allocator;
 var stdout: std.fs.File = undefined;
 var stdin: std.fs.File = undefined;
 var g_tty_win: win32.HANDLE = undefined;
+var stop_requested = std.atomic.Value(bool).init(false);
 
 ///////////////////////////////////
 // Tested on M1 osx15.3, Windows 10 on Intel + Artix Linux.
@@ -117,11 +118,7 @@ pub fn emit(s: []const u8) !void {
         }
         return;
     } else {
-        const sz = try stdout.write(s);
-        if (sz == 0) {
-            return;
-        } // cauze I c
-        return;
+        try stdout.writeAll(s);
     }
 }
 
@@ -144,6 +141,7 @@ const TIOCGWINSZ = std.c.T.IOCGWINSZ; // ioctl flag
 //term size
 const TermSz = struct { height: usize, width: usize };
 var term_sz: TermSz = .{ .height = 0, .width = 0 }; // set via initTermSz
+const sigint = std.posix.SIG.INT;
 
 //ansi escape codes
 const esc = "\x1B";
@@ -231,7 +229,7 @@ pub fn getTermSzLinux() !TermSz {
     //Linux-MacOS Case
 
     //base case - invoked from cmd line
-    const tty_nix = stdout.context.handle;
+    const tty_nix = stdout.handle;
     var winsz = std.c.winsize{ .col = 0, .row = 0, .xpixel = 0, .ypixel = 0 };
     const rv = std.c.ioctl(tty_nix, TIOCGWINSZ, @intFromPtr(&winsz));
     const err = std.posix.errno(rv);
@@ -309,6 +307,8 @@ pub fn initTerm() !void {
 
     if (builtin.os.tag == .windows) {
         try initTermWin();
+    } else {
+        try initSignalHandling();
     }
 
     try initTermSize();
@@ -338,10 +338,11 @@ pub fn pause() !void {
 
     try emit(color_reset);
     try emit("Press return to continue...");
-    var b: u8 = undefined;
-    b = stdin.readByte() catch undefined;
+    var buf: [1]u8 = undefined;
+    const read_sz = stdin.read(&buf) catch 0;
+    if (read_sz == 0) return;
 
-    if (b == 'q') {
+    if (buf[0] == 'q') {
         //exit cleanly
         try complete();
         std.process.exit(0);
@@ -625,27 +626,26 @@ const px = "▀";
 
 //bs = buffer string
 var bs: []u8 = undefined;
-var bs_idx: u64 = 0;
-var bs_len: u64 = 0;
-var bs_sz_min: u64 = 0;
-var bs_sz_max: u64 = 0;
-var bs_sz_avg: u64 = 0;
-var bs_frame_tic: u64 = 0;
+var bs_idx: usize = 0;
+var bs_len: usize = 0;
+var bs_sz_min: usize = 0;
+var bs_sz_max: usize = 0;
+var bs_sz_avg: usize = 0;
+var bs_frame_tic: usize = 0;
 var t_start: i64 = 0;
 var t_now: i64 = 0;
 var t_dur: f64 = 0.0;
 var fps: f64 = 0.0;
 
-pub fn initBuf() !void {
-    //some lazy guesswork to make sure we have enough of a buffer to render DOOM fire.
-    const px_char_sz = px.len;
-    const px_color_sz = bg[LAST_COLOR].len + fg[LAST_COLOR].len;
-    const px_sz = px_color_sz + px_char_sz;
-    const screen_sz: u64 = @as(u64, px_sz * term_sz.width * term_sz.width);
-    const overflow_sz: u64 = px_char_sz * 100;
-    const bs_sz: u64 = screen_sz + overflow_sz;
+pub fn initBuf(fire_w: usize, fire_h: usize) !void {
+    //Allocate generously to avoid buffer overrun when painting frames.
+    //Worst case: every pixel writes bg + fg + px (no reuse), plus line breaks and reset sequences.
+    const max_bytes_per_px: usize = 128; // intentionally generous to avoid overruns
+    const pixel_count = try std.math.mul(usize, fire_w, fire_h);
+    const base_sz = try std.math.mul(usize, pixel_count, max_bytes_per_px);
+    const overhead = (fire_w + fire_h) * 64 + 16384; // cursor moves, reset, slop
 
-    bs = try allocator.alloc(u8, bs_sz * 2);
+    bs = try allocator.alloc(u8, try std.math.add(usize, base_sz, overhead));
     t_start = std.time.milliTimestamp();
     resetBuf();
 }
@@ -658,6 +658,9 @@ pub fn resetBuf() void {
 
 //copy input string to buffer string
 pub fn drawBuf(s: []const u8) void {
+    if (bs_idx + s.len > bs.len) {
+        return; // prevent overflow; frame will be partial but safe
+    }
     for (s) |b| {
         bs[bs_idx] = b;
         bs_idx += 1;
@@ -667,7 +670,8 @@ pub fn drawBuf(s: []const u8) void {
 
 //print buffer to string...can be a decent amount of text!
 pub fn paintBuf() !void {
-    try emit(bs[0 .. bs_len - 1]);
+    if (bs_len == 0) return;
+    try emit(bs[0 .. bs_len]);
     t_now = std.time.milliTimestamp();
     bs_frame_tic += 1;
     if (bs_sz_min == 0) {
@@ -689,7 +693,7 @@ pub fn paintBuf() !void {
     fps = @as(f64, @floatFromInt(bs_frame_tic)) / t_dur;
 
     try emit(fg[0]);
-    try emitFmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max [ {d:.2} fps ]", .{ std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max), fps });
+    try emitFmt("mem: {d} min / {d} avg / {d} max [ {d:.2} fps ]", .{ bs_sz_min, bs_sz_avg, bs_sz_max, fps });
 }
 
 // initBuf(); defer freeBuf();
@@ -710,21 +714,24 @@ pub fn showDoomFire() !void {
     const fire_white: u8 = fire_palette.len - 1;
 
     //screen buf default color is black
-    var screen_buf: []u8 = undefined; //{fire_black}**FIRE_SZ;
+    var screen_buf: []u8 = undefined;
+
+    const initScreenBuf = struct {
+        pub fn fill(buf: []u8, fire_w: u64, fire_last_row: u64, white: u8, black: u8) void {
+            var i: u64 = 0;
+            while (i < buf.len) : (i += 1) {
+                buf[i] = black;
+            }
+            i = 0;
+            while (i < fire_w) : (i += 1) {
+                buf[fire_last_row + i] = white;
+            }
+        }
+    }.fill;
+
     screen_buf = try allocator.alloc(u8, FIRE_SZ);
     defer allocator.free(screen_buf);
-
-    //init buffer
-    var buf_idx: u64 = 0;
-    while (buf_idx < FIRE_SZ) : (buf_idx += 1) {
-        screen_buf[buf_idx] = fire_black;
-    }
-
-    //last row is white...white is "fire source"
-    buf_idx = 0;
-    while (buf_idx < FIRE_W) : (buf_idx += 1) {
-        screen_buf[FIRE_LAST_ROW + buf_idx] = fire_white;
-    }
+    initScreenBuf(screen_buf, FIRE_W, FIRE_LAST_ROW, fire_white, fire_black);
 
     //reset terminal
     try emit(cursor_home);
@@ -756,13 +763,15 @@ pub fn showDoomFire() !void {
     var px_prev_lo = px_lo;
 
     //get to work!
-    try initBuf();
+    try initBuf(@intCast(FIRE_W), @intCast(FIRE_H));
     defer freeBuf();
 
-    //when there is an ez way to poll for key stroke...do that.  for now, ctrl+c!
-    const ok = true;
-    while (ok) {
-
+    while (!stop_requested.load(.acquire)) {
+        if (screen_buf.len != FIRE_SZ) {
+            allocator.free(screen_buf);
+            screen_buf = try allocator.alloc(u8, FIRE_SZ);
+            initScreenBuf(screen_buf, FIRE_W, FIRE_LAST_ROW, fire_white, fire_black);
+        }
         //update fire buf
         doFire_x = 0;
         while (doFire_x < FIRE_W) : (doFire_x = doFire_x + 1) {
