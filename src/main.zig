@@ -8,8 +8,8 @@ const std = @import("std");
 
 const allocator = std.heap.page_allocator;
 
-var stdout: std.fs.File.Writer = undefined;
-var stdin: std.fs.File.Reader = undefined;
+var stdout: std.fs.File = undefined;
+var stdin: std.fs.File = undefined;
 var g_tty_win: win32.HANDLE = undefined;
 
 ///////////////////////////////////
@@ -576,11 +576,11 @@ pub fn scrollMarquee() !void {
             try emit(line_clear_to_eol);
             try emit(nl);
 
-            std.time.sleep(10 * std.time.ns_per_ms);
+            std.Thread.sleep(10 * std.time.ns_per_ms);
         }
 
         //let quote chill for a second
-        std.time.sleep(1000 * std.time.ns_per_ms);
+        std.Thread.sleep(1000 * std.time.ns_per_ms);
 
         //fade out
         fade_idx = fade_len - 1;
@@ -598,7 +598,7 @@ pub fn scrollMarquee() !void {
             try emit(txt[txt_idx * 2 + 1]);
             try emit(line_clear_to_eol);
             try emit(nl);
-            std.time.sleep(10 * std.time.ns_per_ms);
+            std.Thread.sleep(10 * std.time.ns_per_ms);
         }
         try emit(nl);
     }
@@ -835,8 +835,8 @@ pub fn showDoomFire() !void {
 ///////////////////////////////////
 
 pub fn main() anyerror!void {
-    stdout = std.io.getStdOut().writer();
-    stdin = std.io.getStdIn().reader();
+    stdout = std.fs.File.stdout();
+    stdin = std.fs.File.stdin();
 
     try initTerm();
     defer complete() catch {};
