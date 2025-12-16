@@ -960,3 +960,17 @@ const win32 = struct {
 //
 //If not, see https://www.gnu.org/licenses/.
 //---------
+// basic Ctrl+C handling on POSIX; set a flag and let main loop exit gracefully
+fn handleSigInt(sig: c_int) callconv(.c) void {
+    _ = sig;
+    stop_requested.store(true, .release);
+}
+
+fn initSignalHandling() !void {
+    var act = std.posix.Sigaction{
+        .handler = .{ .handler = handleSigInt },
+        .mask = std.posix.sigemptyset(),
+        .flags = 0,
+    };
+    std.posix.sigaction(sigint, &act, null);
+}
