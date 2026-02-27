@@ -40,7 +40,7 @@ Start your favorite terminal, maximize it, then launch DOOM-fire-zig! Test your 
 | VS Code            | great  | great        | poor (20fps)     |
 | Warp               | great? | great        | -                |
 | WezTerm            | ?      | ?            | ok               |
-| Ghostty            | ?      | great        | -                |
+| Ghostty            | great  | great        | -                |
 
 ### Definitions
 ```
