@@ -20,7 +20,7 @@ Build Requirements:
 * windows - kernel32
 
 Merge Request (MR) Validation:
-* Each MR tested on MacOS Sequia 15.3 / M1 w/zig 0.14 on MacOS Kitty, VS Code, Alacritty.
+* Each MR tested on MacOS Sequia 15.3 / M1 w/zig 0.15.2 on MacOS Kitty, VS Code, Alacritty.
 * Many MR tested on Windows 10 / Intel, with Microsoft Terminal, CMD.EXE, PowerShell.
 * Linux tests are c/o the wonderful community who help identify...and repair...cross platform issues!
 
@@ -143,5 +143,4 @@ DOOM-fire-zig is free software: you can redistribute it and/or modify it under t
 This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License along with this program. If not, see https://www.gnu.org/licenses/.
-
 

@@ -8,8 +8,8 @@ const std = @import("std");
 
 const allocator = std.heap.page_allocator;
 
-var stdout: std.fs.File.Writer = undefined;
-var stdin: std.fs.File.Reader = undefined;
+var stdout: std.fs.File = undefined;
+var stdin: std.fs.File = undefined;
 var g_tty_win: win32.HANDLE = undefined;
 
 ///////////////////////////////////
@@ -117,10 +117,14 @@ pub fn emit(s: []const u8) !void {
         }
         return;
     } else {
-        const sz = try stdout.write(s);
-        if (sz == 0) {
-            return;
-        } // cauze I c
+        var written: usize = 0;
+        while (written < s.len) {
+            const sz = try stdout.write(s[written..]);
+            if (sz == 0) {
+                return;
+            }
+            written += sz;
+        }
         return;
     }
 }
@@ -231,7 +235,7 @@ pub fn getTermSzLinux() !TermSz {
     //Linux-MacOS Case
 
     //base case - invoked from cmd line
-    const tty_nix = stdout.context.handle;
+    const tty_nix = stdout.handle;
     var winsz = std.c.winsize{ .col = 0, .row = 0, .xpixel = 0, .ypixel = 0 };
     const rv = std.c.ioctl(tty_nix, TIOCGWINSZ, @intFromPtr(&winsz));
     const err = std.posix.errno(rv);
@@ -338,10 +342,9 @@ pub fn pause() !void {
 
     try emit(color_reset);
     try emit("Press return to continue...");
-    var b: u8 = undefined;
-    b = stdin.readByte() catch undefined;
-
-    if (b == 'q') {
+    var b: [1]u8 = undefined;
+    const bytes_read = stdin.read(&b) catch 0;
+    if (bytes_read == 1 and b[0] == 'q') {
         //exit cleanly
         try complete();
         std.process.exit(0);
@@ -576,11 +579,11 @@ pub fn scrollMarquee() !void {
             try emit(line_clear_to_eol);
             try emit(nl);
 
-            std.time.sleep(10 * std.time.ns_per_ms);
+            std.Thread.sleep(10 * std.time.ns_per_ms);
         }
 
         //let quote chill for a second
-        std.time.sleep(1000 * std.time.ns_per_ms);
+        std.Thread.sleep(1000 * std.time.ns_per_ms);
 
         //fade out
         fade_idx = fade_len - 1;
@@ -598,7 +601,7 @@ pub fn scrollMarquee() !void {
             try emit(txt[txt_idx * 2 + 1]);
             try emit(line_clear_to_eol);
             try emit(nl);
-            std.time.sleep(10 * std.time.ns_per_ms);
+            std.Thread.sleep(10 * std.time.ns_per_ms);
         }
         try emit(nl);
     }
@@ -689,7 +692,7 @@ pub fn paintBuf() !void {
     fps = @as(f64, @floatFromInt(bs_frame_tic)) / t_dur;
 
     try emit(fg[0]);
-    try emitFmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max [ {d:.2} fps ]", .{ std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max), fps });
+    try emitFmt("mem: {Bi:.2} min / {Bi:.2} avg / {Bi:.2} max [ {d:.2} fps ]", .{ bs_sz_min, bs_sz_avg, bs_sz_max, fps });
 }
 
 // initBuf(); defer freeBuf();
@@ -835,8 +838,8 @@ pub fn showDoomFire() !void {
 ///////////////////////////////////
 
 pub fn main() anyerror!void {
-    stdout = std.io.getStdOut().writer();
-    stdin = std.io.getStdIn().reader();
+    stdout = std.fs.File.stdout();
+    stdin = std.fs.File.stdin();
 
     try initTerm();
     defer complete() catch {};
