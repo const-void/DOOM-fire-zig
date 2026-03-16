@@ -92,6 +92,7 @@ var g_tty_win: win32.HANDLE = undefined;
 
 //// consts, vars, settings
 var rand: std.Random = undefined;
+var quit: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
 
 //// functions
 
@@ -302,6 +303,31 @@ pub fn initTermWin() !void {
     if (0 == win32.SetConsoleOutputCP(win32.CP_UTF8)) switch (std.os.windows.kernel32.GetLastError()) {
         else => |e| return std.os.windows.unexpectedError(e),
     };
+}
+
+fn initSignalHandlers() error{Unexpected}!void {
+    if (builtin.os.tag == .windows) {
+        if (0 == win32.SetConsoleCtrlHandler(&win32CtrlHandler, 1)) switch (std.os.windows.kernel32.GetLastError()) {
+            else => |e| return std.os.windows.unexpectedError(e),
+        };
+    } else {
+        const act = std.posix.Sigaction{
+            .handler = .{ .handler = posixSigHandler },
+            .mask = std.posix.empty_sigset,
+            .flags = 0,
+        };
+        std.posix.sigaction(std.posix.SIG.INT, &act, null);
+    }
+}
+
+fn posixSigHandler(_: c_int) callconv(.c) void {
+    quit.store(true, .release);
+}
+
+fn win32CtrlHandler(dwCtrlType: win32.DWORD) callconv(.winapi) win32.BOOL {
+    _ = dwCtrlType;
+    quit.store(true, .release);
+    return 1; // TRUE = we handled it, don't terminate
 }
 
 pub fn initTerm() !void {
@@ -759,9 +785,8 @@ pub fn showDoomFire() !void {
     try initBuf();
     defer freeBuf();
 
-    //when there is an ez way to poll for key stroke...do that.  for now, ctrl+c!
-    const ok = true;
-    while (ok) {
+    //ctrl+c sets quit flag, main loop exits gracefully
+    while (!quit.load(.acquire)) {
 
         //update fire buf
         doFire_x = 0;
@@ -835,6 +860,7 @@ pub fn showDoomFire() !void {
 ///////////////////////////////////
 
 pub fn main() anyerror!void {
+    try initSignalHandlers();
     stdout = std.io.getStdOut().writer();
     stdin = std.io.getStdIn().reader();
 
@@ -927,6 +953,12 @@ const win32 = struct {
 
     // https://learn.microsoft.com/en-us/windows/console/setconsoleoutputcp
     pub extern "kernel32" fn SetConsoleOutputCP(in_wCodePageID: UINT) callconv(std.os.windows.WINAPI) BOOL;
+
+    // https://learn.microsoft.com/en-us/windows/console/setconsolectrlhandler
+    pub extern "kernel32" fn SetConsoleCtrlHandler(
+        lpHandlerRoutine: ?*const fn (DWORD) callconv(std.os.windows.WINAPI) BOOL,
+        bAdd: BOOL,
+    ) callconv(std.os.windows.WINAPI) BOOL;
 
     // https://learn.microsoft.com/en-us/windows/console/writeconsole
     //   W = Wide = UTF8
