@@ -8,8 +8,9 @@ const std = @import("std");
 
 const allocator = std.heap.page_allocator;
 
-var stdout: std.fs.File.Writer = undefined;
-var stdin: std.fs.File.Reader = undefined;
+// In Zig 0.16, std.fs.File.Writer/Reader were removed; use libc directly via std.c.write/read.
+const stdout_fd = std.posix.STDOUT_FILENO;
+const stdin_fd = std.posix.STDIN_FILENO;
 var g_tty_win: win32.HANDLE = undefined;
 
 ///////////////////////////////////
@@ -97,10 +98,9 @@ var rand: std.Random = undefined;
 
 // seed & prep for rng
 pub fn initRNG() !void {
-    //rnd setup -- https://ziglearn.org/chapter-2/#random-numbers
     var prng = std.Random.DefaultPrng.init(blk: {
         var seed: u64 = undefined;
-        try std.posix.getrandom(std.mem.asBytes(&seed));
+        std.c.arc4random_buf(@ptrCast(&seed), @sizeOf(u64));
         break :blk seed;
     });
     rand = prng.random();
@@ -117,12 +117,25 @@ pub fn emit(s: []const u8) !void {
         }
         return;
     } else {
-        const sz = try stdout.write(s);
-        if (sz == 0) {
+        const sz = std.c.write(stdout_fd, s.ptr, s.len);
+        if (sz <= 0) {
             return;
-        } // cauze I c
+        }
         return;
     }
+}
+
+// sleep for nanoseconds using libc nanosleep
+pub fn sleepNs(ns: u64) void {
+    var ts = std.c.timespec{ .sec = @intCast(ns / std.time.ns_per_s), .nsec = @intCast(ns % std.time.ns_per_s) };
+    _ = std.c.nanosleep(&ts, null);
+}
+
+// millisecond timestamp using libc gettimeofday
+pub fn milliTimestamp() i64 {
+    var tv: std.c.timeval = undefined;
+    _ = std.c.gettimeofday(&tv, null);
+    return @as(i64, tv.sec) * 1000 + @divTrunc(@as(i64, tv.usec), 1000);
 }
 
 // format a string then print
@@ -231,7 +244,7 @@ pub fn getTermSzLinux() !TermSz {
     //Linux-MacOS Case
 
     //base case - invoked from cmd line
-    const tty_nix = stdout.context.handle;
+    const tty_nix = stdout_fd;
     var winsz = std.c.winsize{ .col = 0, .row = 0, .xpixel = 0, .ypixel = 0 };
     const rv = std.c.ioctl(tty_nix, TIOCGWINSZ, @intFromPtr(&winsz));
     const err = std.posix.errno(rv);
@@ -239,11 +252,11 @@ pub fn getTermSzLinux() !TermSz {
     if (rv >= 0) {
         if (winsz.row == 0 or winsz.col == 0) { // ltty IOCTL failed ie in lldb
             //alt case - invoked from inside lldb
-            var lldb_tty_nix = try std.fs.cwd().openFile("/dev/tty", .{});
-            defer lldb_tty_nix.close();
+            const lldb_tty_nix = try std.posix.openat(std.posix.AT.FDCWD, "/dev/tty", .{}, 0);
+            defer _ = std.c.close(lldb_tty_nix);
 
             var lldb_winsz = std.c.winsize{ .col = 0, .row = 0, .xpixel = 0, .ypixel = 0 };
-            const lldb_rv = std.c.ioctl(lldb_tty_nix.handle, TIOCGWINSZ, @intFromPtr(&lldb_winsz));
+            const lldb_rv = std.c.ioctl(lldb_tty_nix, TIOCGWINSZ, @intFromPtr(&lldb_winsz));
             const lldb_err = std.posix.errno(lldb_rv);
 
             if (lldb_rv >= 0) {
@@ -338,8 +351,8 @@ pub fn pause() !void {
 
     try emit(color_reset);
     try emit("Press return to continue...");
-    var b: u8 = undefined;
-    b = stdin.readByte() catch undefined;
+    var b: u8 = 0;
+    _ = std.c.read(stdin_fd, @as([*]u8, @ptrCast(&b)), 1);
 
     if (b == 'q') {
         //exit cleanly
@@ -576,11 +589,11 @@ pub fn scrollMarquee() !void {
             try emit(line_clear_to_eol);
             try emit(nl);
 
-            std.time.sleep(10 * std.time.ns_per_ms);
+            sleepNs(10 * std.time.ns_per_ms);
         }
 
         //let quote chill for a second
-        std.time.sleep(1000 * std.time.ns_per_ms);
+        sleepNs(1000 * std.time.ns_per_ms);
 
         //fade out
         fade_idx = fade_len - 1;
@@ -598,7 +611,7 @@ pub fn scrollMarquee() !void {
             try emit(txt[txt_idx * 2 + 1]);
             try emit(line_clear_to_eol);
             try emit(nl);
-            std.time.sleep(10 * std.time.ns_per_ms);
+            sleepNs(10 * std.time.ns_per_ms);
         }
         try emit(nl);
     }
@@ -646,7 +659,7 @@ pub fn initBuf() !void {
     const bs_sz: u64 = screen_sz + overflow_sz;
 
     bs = try allocator.alloc(u8, bs_sz * 2);
-    t_start = std.time.milliTimestamp();
+    t_start = milliTimestamp();
     resetBuf();
 }
 
@@ -668,7 +681,7 @@ pub fn drawBuf(s: []const u8) void {
 //print buffer to string...can be a decent amount of text!
 pub fn paintBuf() !void {
     try emit(bs[0 .. bs_len - 1]);
-    t_now = std.time.milliTimestamp();
+    t_now = milliTimestamp();
     bs_frame_tic += 1;
     if (bs_sz_min == 0) {
         //first frame
@@ -689,7 +702,7 @@ pub fn paintBuf() !void {
     fps = @as(f64, @floatFromInt(bs_frame_tic)) / t_dur;
 
     try emit(fg[0]);
-    try emitFmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max [ {d:.2} fps ]", .{ std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max), fps });
+    try emitFmt("mem: {d}B min / {d}B avg / {d}B max [ {d:.2} fps ]", .{ bs_sz_min, bs_sz_avg, bs_sz_max, fps });
 }
 
 // initBuf(); defer freeBuf();
@@ -835,9 +848,6 @@ pub fn showDoomFire() !void {
 ///////////////////////////////////
 
 pub fn main() anyerror!void {
-    stdout = std.io.getStdOut().writer();
-    stdin = std.io.getStdIn().reader();
-
     try initTerm();
     defer complete() catch {};
 
