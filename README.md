@@ -30,6 +30,7 @@ Start your favorite terminal, maximize it, then launch DOOM-fire-zig! Test your 
 
 | Terminal           | Linux  | MacOS        | Windows          |
 | ------------------ | ------ | ------------ | ---------------- |
+| AbsoluteTelnet/SSH | -      | -            | great            |
 | Alacritty          | great? | great        | very poor (4pfs) |
 | Apple Terminal.app | -      | poor (? fps) | -                |
 | CMD.EXE            | -      | -            | poor (20fps)     |
