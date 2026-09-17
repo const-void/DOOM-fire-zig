@@ -638,12 +638,23 @@ var fps: f64 = 0.0;
 
 pub fn initBuf() !void {
     //some lazy guesswork to make sure we have enough of a buffer to render DOOM fire.
+    //
+    //worst case for one frame is every cell emitting a background colour, a foreground
+    //colour and the half-block glyph, plus a newline per painted row.  The fire is painted
+    //two pixel rows per character row, so there are term_sz.height character rows.
+    //
+    //this used to size the screen by width * WIDTH, which has nothing to do with how many
+    //rows are painted: in a tall, narrow terminal the allowance is smaller than a worst-case
+    //frame (20x60 allows ~20KB where the worst case is ~30KB).  In practice the colour cache
+    //keeps real frames well under that, so it did not bite -- but resizing makes such
+    //geometries reachable at runtime, so size the buffer by width * height instead.
     const px_char_sz = px.len;
     const px_color_sz = bg[LAST_COLOR].len + fg[LAST_COLOR].len;
     const px_sz = px_color_sz + px_char_sz;
-    const screen_sz: u64 = @as(u64, px_sz * term_sz.width * term_sz.width);
+    const screen_sz: u64 = @as(u64, px_sz * term_sz.width * term_sz.height);
+    const newline_sz: u64 = @as(u64, nl.len * term_sz.height);
     const overflow_sz: u64 = px_char_sz * 100;
-    const bs_sz: u64 = screen_sz + overflow_sz;
+    const bs_sz: u64 = screen_sz + newline_sz + overflow_sz;
 
     bs = try allocator.alloc(u8, bs_sz * 2);
     t_start = std.time.milliTimestamp();
@@ -688,6 +699,20 @@ pub fn paintBuf() !void {
     t_dur = @as(f64, @floatFromInt(t_now - t_start)) / 1000.0;
     fps = @as(f64, @floatFromInt(bs_frame_tic)) / t_dur;
 
+    // Place the status line explicitly instead of relying on a pending wrap.
+    //
+    // The frame above is emitted as bs[0 .. bs_len - 1], which drops the buffer's final
+    // newline, and the fire paints exactly term_sz.height rows of exactly term_sz.width
+    // glyphs. The cursor therefore ends on the bottom-right cell with the deferred-wrap
+    // flag set (DECAWM defers the wrap until the next printable character). The SGR below
+    // does not clear that flag, so the status text's first character resolves the wrap and
+    // scrolls the WHOLE SCREEN up one line -- once per frame, discarding the top row.
+    //
+    // Terminals that present asynchronously can sample the screen between that scroll and
+    // the status text being written, which shows up as a flickering status line. A CUP to
+    // the last row cancels the pending wrap and puts the text where it was always meant to
+    // go, removing both the per-frame scroll and the flicker.
+    try emitFmt("{s}{d};1H", .{ csi, term_sz.height });
     try emit(fg[0]);
     try emitFmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max [ {d:.2} fps ]", .{ std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max), fps });
 }
@@ -697,40 +722,35 @@ pub fn freeBuf() void {
     allocator.free(bs);
 }
 
+//how often to ask the terminal for its size, in milliseconds.  The check uses the timestamp
+//paintBuf() already takes every frame, so this costs one getTermSz() per interval no matter
+//what the frame rate is -- responsive to a drag, invisible in the fps number.
+const RESIZE_POLL_MS: i64 = 50;
+
 pub fn showDoomFire() !void {
-    //term size => fire size
-    const FIRE_H: u64 = @as(u64, @intCast(term_sz.height)) * 2;
-    const FIRE_W: u64 = @as(u64, @intCast(term_sz.width));
-    const FIRE_SZ: u64 = FIRE_H * FIRE_W;
-    const FIRE_LAST_ROW: u64 = (FIRE_H - 1) * FIRE_W;
+    //term size => fire size.  These are re-derived whenever the terminal is resized.
+    var FIRE_H: u64 = 0;
+    var FIRE_W: u64 = 0;
+    var FIRE_SZ: u64 = 0;
+    var FIRE_LAST_ROW: u64 = 0;
 
     //colors - tinker w/palette as needed!
     const fire_palette = [_]u8{ 0, 233, 234, 52, 53, 88, 89, 94, 95, 96, 130, 131, 132, 133, 172, 214, 215, 220, 220, 221, 3, 226, 227, 230, 195, 230 };
     const fire_black: u8 = 0;
     const fire_white: u8 = fire_palette.len - 1;
 
-    //screen buf default color is black
-    var screen_buf: []u8 = undefined; //{fire_black}**FIRE_SZ;
-    screen_buf = try allocator.alloc(u8, FIRE_SZ);
-    defer allocator.free(screen_buf);
+    //screen buf default color is black.  Empty until the first sizing pass below, and
+    //reallocated on every resize.
+    var screen_buf: []u8 = &[_]u8{};
+    defer if (screen_buf.len > 0) allocator.free(screen_buf);
 
-    //init buffer
-    var buf_idx: u64 = 0;
-    while (buf_idx < FIRE_SZ) : (buf_idx += 1) {
-        screen_buf[buf_idx] = fire_black;
-    }
+    //bs (the string buffer) is sized from the terminal too, so it is rebuilt alongside it
+    var buf_ready = false;
+    defer if (buf_ready) freeBuf();
 
-    //last row is white...white is "fire source"
-    buf_idx = 0;
-    while (buf_idx < FIRE_W) : (buf_idx += 1) {
-        screen_buf[FIRE_LAST_ROW + buf_idx] = fire_white;
-    }
-
-    //reset terminal
-    try emit(cursor_home);
-    try emit(color_reset);
-    try emit(color_def);
-    try emit(screen_clear);
+    //set on the first pass and on every size change: rebuild the fire and repaint from scratch
+    var resize_pending = true;
+    var resize_checked_ms: i64 = std.time.milliTimestamp();
 
     //scope cache ////////////////////
     //scope cache - update fire buf
@@ -756,12 +776,50 @@ pub fn showDoomFire() !void {
     var px_prev_lo = px_lo;
 
     //get to work!
-    try initBuf();
-    defer freeBuf();
-
     //when there is an ez way to poll for key stroke...do that.  for now, ctrl+c!
     const ok = true;
     while (ok) {
+
+        //(re)build the fire whenever the terminal size changed -- and once at startup
+        if (resize_pending) {
+            resize_pending = false;
+
+            FIRE_H = @as(u64, @intCast(term_sz.height)) * 2;
+            FIRE_W = @as(u64, @intCast(term_sz.width));
+            FIRE_SZ = FIRE_H * FIRE_W;
+            FIRE_LAST_ROW = (FIRE_H - 1) * FIRE_W;
+
+            if (screen_buf.len > 0) allocator.free(screen_buf);
+            screen_buf = try allocator.alloc(u8, FIRE_SZ);
+            @memset(screen_buf, fire_black);
+
+            //last row is white...white is "fire source"
+            var seed_idx: u64 = 0;
+            while (seed_idx < FIRE_W) : (seed_idx += 1) {
+                screen_buf[FIRE_LAST_ROW + seed_idx] = fire_white;
+            }
+
+            //the string buffer is sized from the terminal, so it is rebuilt too.  This also
+            //restarts the frame statistics, which are all sizes and rates for the OLD screen.
+            if (buf_ready) freeBuf();
+            try initBuf();
+            buf_ready = true;
+            bs_sz_min = 0;
+            bs_sz_max = 0;
+            bs_sz_avg = 0;
+            bs_frame_tic = 0;
+
+            //reset terminal
+            try emit(cursor_home);
+            try emit(color_reset);
+            try emit(color_def);
+            try emit(screen_clear);
+
+            //the colour cache below skips an SGR when the colour is unchanged, so it has to
+            //agree with what the screen was just reset to
+            px_prev_hi = fire_black;
+            px_prev_lo = fire_black;
+        }
 
         //update fire buf
         doFire_x = 0;
@@ -827,6 +885,21 @@ pub fn showDoomFire() !void {
         }
         try paintBuf();
         resetBuf();
+
+        //has the window changed size?  paintBuf() just refreshed t_now, so this costs one
+        //getTermSz() per RESIZE_POLL_MS rather than one per frame.  A size of zero means the
+        //query failed (or the window is minimised); keep the current fire until it is real
+        //again rather than allocating a zero-sized screen.
+        if (t_now - resize_checked_ms >= RESIZE_POLL_MS) {
+            resize_checked_ms = t_now;
+            const new_sz = try getTermSz();
+            if (new_sz.height >= 2 and new_sz.width >= 2 and
+                (new_sz.height != term_sz.height or new_sz.width != term_sz.width))
+            {
+                term_sz = new_sz;
+                resize_pending = true;
+            }
+        }
     }
 }
 
