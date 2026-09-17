@@ -688,6 +688,20 @@ pub fn paintBuf() !void {
     t_dur = @as(f64, @floatFromInt(t_now - t_start)) / 1000.0;
     fps = @as(f64, @floatFromInt(bs_frame_tic)) / t_dur;
 
+    // Place the status line explicitly instead of relying on a pending wrap.
+    //
+    // The frame above is emitted as bs[0 .. bs_len - 1], which drops the buffer's final
+    // newline, and the fire paints exactly term_sz.height rows of exactly term_sz.width
+    // glyphs. The cursor therefore ends on the bottom-right cell with the deferred-wrap
+    // flag set (DECAWM defers the wrap until the next printable character). The SGR below
+    // does not clear that flag, so the status text's first character resolves the wrap and
+    // scrolls the WHOLE SCREEN up one line -- once per frame, discarding the top row.
+    //
+    // Terminals that present asynchronously can sample the screen between that scroll and
+    // the status text being written, which shows up as a flickering status line. A CUP to
+    // the last row cancels the pending wrap and puts the text where it was always meant to
+    // go, removing both the per-frame scroll and the flicker.
+    try emitFmt("{s}{d};1H", .{ csi, term_sz.height });
     try emit(fg[0]);
     try emitFmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max [ {d:.2} fps ]", .{ std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max), fps });
 }
