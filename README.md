@@ -15,6 +15,7 @@ $ zig build run
 ...
 ```
 Build Requirements:
+* Zig 0.17.1 (pinned in `.zigversion`)
 * all platforms - libc
 * all platforms - x64 (for now)
 * windows - kernel32
