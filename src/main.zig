@@ -8,8 +8,9 @@ const std = @import("std");
 
 const allocator = std.heap.page_allocator;
 
-var stdout: std.fs.File.Writer = undefined;
-var stdin: std.fs.File.Reader = undefined;
+var io: std.Io = undefined;
+var stdout: std.Io.File = undefined;
+var stdin: std.Io.File.Reader = undefined;
 var g_tty_win: win32.HANDLE = undefined;
 
 ///////////////////////////////////
@@ -91,6 +92,7 @@ var g_tty_win: win32.HANDLE = undefined;
 ///////////////////////////////////
 
 //// consts, vars, settings
+var prng: std.Random.DefaultPrng = undefined;
 var rand: std.Random = undefined;
 
 //// functions
@@ -98,9 +100,9 @@ var rand: std.Random = undefined;
 // seed & prep for rng
 pub fn initRNG() !void {
     //rnd setup -- https://ziglearn.org/chapter-2/#random-numbers
-    var prng = std.Random.DefaultPrng.init(blk: {
+    prng = std.Random.DefaultPrng.init(blk: {
         var seed: u64 = undefined;
-        try std.posix.getrandom(std.mem.asBytes(&seed));
+        try io.randomSecure(std.mem.asBytes(&seed));
         break :blk seed;
     });
     rand = prng.random();
@@ -109,19 +111,18 @@ pub fn initRNG() !void {
 // print
 pub fn emit(s: []const u8) !void {
     if (builtin.os.tag == .windows) {
-        var sz: win32.DWORD = 0;
-
-        const rv = win32.WriteConsoleA(g_tty_win, s.ptr, @intCast(s.len), &sz, undefined);
-        if (rv == 0) {
-            return;
+        var offset: usize = 0;
+        while (offset < s.len) {
+            var written: win32.DWORD = 0;
+            const count: win32.DWORD = @intCast(@min(s.len - offset, std.math.maxInt(win32.DWORD)));
+            if (win32.WriteConsoleA(g_tty_win, s[offset..].ptr, count, &written, null) == .FALSE) {
+                return std.os.windows.unexpectedError(std.os.windows.GetLastError());
+            }
+            if (written == 0) return error.WriteFailed;
+            offset += written;
         }
-        return;
     } else {
-        const sz = try stdout.write(s);
-        if (sz == 0) {
-            return;
-        } // cauze I c
-        return;
+        try stdout.writeStreamingAll(io, s);
     }
 }
 
@@ -211,13 +212,9 @@ pub fn initColor() !void {
 
 pub fn getTermSzWin() !TermSz {
     //Microsoft Windows Case
-    var info: win32.CONSOLE_SCREEN_BUFFER_INFO = .{ .dwSize = .{ .X = 0, .Y = 0 },
-                                                    .dwCursorPosition = .{.X= 0, .Y= 0},
-                                                    .wAttributes= 0,
-                                                    .srWindow = .{ .Left = 0, .Top = 0, .Right = 0, .Bottom = 0},
-                                                    .dwMaximumWindowSize = .{.X = 0, .Y = 0} };
+    var info: win32.CONSOLE_SCREEN_BUFFER_INFO = .{ .dwSize = .{ .X = 0, .Y = 0 }, .dwCursorPosition = .{ .X = 0, .Y = 0 }, .wAttributes = 0, .srWindow = .{ .Left = 0, .Top = 0, .Right = 0, .Bottom = 0 }, .dwMaximumWindowSize = .{ .X = 0, .Y = 0 } };
 
-    if (0 == win32.GetConsoleScreenBufferInfo(g_tty_win, &info)) switch (std.os.windows.kernel32.GetLastError()) {
+    if (.FALSE == win32.GetConsoleScreenBufferInfo(g_tty_win, &info)) switch (std.os.windows.GetLastError()) {
         else => |e| return std.os.windows.unexpectedError(e),
     };
 
@@ -231,7 +228,7 @@ pub fn getTermSzLinux() !TermSz {
     //Linux-MacOS Case
 
     //base case - invoked from cmd line
-    const tty_nix = stdout.context.handle;
+    const tty_nix = stdout.handle;
     var winsz = std.c.winsize{ .col = 0, .row = 0, .xpixel = 0, .ypixel = 0 };
     const rv = std.c.ioctl(tty_nix, TIOCGWINSZ, @intFromPtr(&winsz));
     const err = std.posix.errno(rv);
@@ -239,8 +236,8 @@ pub fn getTermSzLinux() !TermSz {
     if (rv >= 0) {
         if (winsz.row == 0 or winsz.col == 0) { // ltty IOCTL failed ie in lldb
             //alt case - invoked from inside lldb
-            var lldb_tty_nix = try std.fs.cwd().openFile("/dev/tty", .{});
-            defer lldb_tty_nix.close();
+            const lldb_tty_nix = try std.Io.Dir.openFileAbsolute(io, "/dev/tty", .{});
+            defer lldb_tty_nix.close(io);
 
             var lldb_winsz = std.c.winsize{ .col = 0, .row = 0, .xpixel = 0, .ypixel = 0 };
             const lldb_rv = std.c.ioctl(lldb_tty_nix.handle, TIOCGWINSZ, @intFromPtr(&lldb_winsz));
@@ -278,10 +275,10 @@ pub fn initTermWin() !void {
     var consoleMode: win32.DWORD = 0;
 
     // pull tty from std.os.windows
-    g_tty_win = std.os.windows.GetStdHandle(win32.STD_OUTPUT_HANDLE) catch return std.os.windows.unexpectedError(std.os.windows.kernel32.GetLastError());
+    g_tty_win = stdout.handle;
 
     //get console mode
-    if (0 == win32.GetConsoleMode(g_tty_win, &consoleMode)) switch (std.os.windows.kernel32.GetLastError()) {
+    if (.FALSE == win32.GetConsoleMode(g_tty_win, &consoleMode)) switch (std.os.windows.GetLastError()) {
         else => |e| return std.os.windows.unexpectedError(e),
     };
 
@@ -290,7 +287,7 @@ pub fn initTermWin() !void {
     //win32.ENABLE_PROCESSED_OUTPUT does not appear to be needed
 
     // apply updated consoleMode to console
-    if (0 == win32.SetConsoleMode(g_tty_win, consoleMode)) switch (std.os.windows.kernel32.GetLastError()) {
+    if (.FALSE == win32.SetConsoleMode(g_tty_win, consoleMode)) switch (std.os.windows.GetLastError()) {
         else => |e| return std.os.windows.unexpectedError(e),
     };
 
@@ -299,7 +296,7 @@ pub fn initTermWin() !void {
     //   then, in complete, restore code page.
 
     // enable UTF8
-    if (0 == win32.SetConsoleOutputCP(win32.CP_UTF8)) switch (std.os.windows.kernel32.GetLastError()) {
+    if (.FALSE == win32.SetConsoleOutputCP(win32.CP_UTF8)) switch (std.os.windows.GetLastError()) {
         else => |e| return std.os.windows.unexpectedError(e),
     };
 }
@@ -339,7 +336,7 @@ pub fn pause() !void {
     try emit(color_reset);
     try emit("Press return to continue...");
     var b: u8 = undefined;
-    b = stdin.readByte() catch undefined;
+    b = stdin.interface.takeByte() catch undefined;
 
     if (b == 'q') {
         //exit cleanly
@@ -576,11 +573,11 @@ pub fn scrollMarquee() !void {
             try emit(line_clear_to_eol);
             try emit(nl);
 
-            std.time.sleep(10 * std.time.ns_per_ms);
+            try io.sleep(.fromMilliseconds(10), .awake);
         }
 
         //let quote chill for a second
-        std.time.sleep(1000 * std.time.ns_per_ms);
+        try io.sleep(.fromMilliseconds(1000), .awake);
 
         //fade out
         fade_idx = fade_len - 1;
@@ -598,7 +595,7 @@ pub fn scrollMarquee() !void {
             try emit(txt[txt_idx * 2 + 1]);
             try emit(line_clear_to_eol);
             try emit(nl);
-            std.time.sleep(10 * std.time.ns_per_ms);
+            try io.sleep(.fromMilliseconds(10), .awake);
         }
         try emit(nl);
     }
@@ -646,7 +643,7 @@ pub fn initBuf() !void {
     const bs_sz: u64 = screen_sz + overflow_sz;
 
     bs = try allocator.alloc(u8, bs_sz * 2);
-    t_start = std.time.milliTimestamp();
+    t_start = std.Io.Clock.awake.now(io).toMilliseconds();
     resetBuf();
 }
 
@@ -668,7 +665,7 @@ pub fn drawBuf(s: []const u8) void {
 //print buffer to string...can be a decent amount of text!
 pub fn paintBuf() !void {
     try emit(bs[0 .. bs_len - 1]);
-    t_now = std.time.milliTimestamp();
+    t_now = std.Io.Clock.awake.now(io).toMilliseconds();
     bs_frame_tic += 1;
     if (bs_sz_min == 0) {
         //first frame
@@ -689,7 +686,7 @@ pub fn paintBuf() !void {
     fps = @as(f64, @floatFromInt(bs_frame_tic)) / t_dur;
 
     try emit(fg[0]);
-    try emitFmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max [ {d:.2} fps ]", .{ std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max), fps });
+    try emitFmt("mem: {Bi:.2} min / {Bi:.2} avg / {Bi:.2} max [ {d:.2} fps ]", .{ bs_sz_min, bs_sz_avg, bs_sz_max, fps });
 }
 
 // initBuf(); defer freeBuf();
@@ -834,9 +831,11 @@ pub fn showDoomFire() !void {
 // main
 ///////////////////////////////////
 
-pub fn main() anyerror!void {
-    stdout = std.io.getStdOut().writer();
-    stdin = std.io.getStdIn().reader();
+pub fn main(init: std.process.Init) anyerror!void {
+    io = init.io;
+    stdout = std.Io.File.stdout();
+    var stdin_buffer: [256]u8 = undefined;
+    stdin = std.Io.File.stdin().readerStreaming(io, &stdin_buffer);
 
     try initTerm();
     defer complete() catch {};
@@ -917,24 +916,24 @@ const win32 = struct {
     pub extern "kernel32" fn GetConsoleScreenBufferInfo(
         hConsoleOutput: ?HANDLE,
         lpConsoleScreenBufferInfo: ?*CONSOLE_SCREEN_BUFFER_INFO,
-    ) callconv(std.os.windows.WINAPI) BOOL;
+    ) callconv(.winapi) BOOL;
 
     // https://learn.microsoft.com/en-us/windows/console/getconsolemode
-    pub extern "kernel32" fn GetConsoleMode(hConsoleOutput: ?HANDLE, lpOutMode: ?*DWORD) callconv(std.os.windows.WINAPI) BOOL;
+    pub extern "kernel32" fn GetConsoleMode(hConsoleOutput: ?HANDLE, lpOutMode: ?*DWORD) callconv(.winapi) BOOL;
 
     // https://learn.microsoft.com/en-us/windows/console/setconsolemode
-    pub extern "kernel32" fn SetConsoleMode(in_hConsoleHandle: HANDLE, in_Mode: DWORD) callconv(std.os.windows.WINAPI) BOOL;
+    pub extern "kernel32" fn SetConsoleMode(in_hConsoleHandle: HANDLE, in_Mode: DWORD) callconv(.winapi) BOOL;
 
     // https://learn.microsoft.com/en-us/windows/console/setconsoleoutputcp
-    pub extern "kernel32" fn SetConsoleOutputCP(in_wCodePageID: UINT) callconv(std.os.windows.WINAPI) BOOL;
+    pub extern "kernel32" fn SetConsoleOutputCP(in_wCodePageID: UINT) callconv(.winapi) BOOL;
 
     // https://learn.microsoft.com/en-us/windows/console/writeconsole
     //   W = Wide = UTF8
-    pub extern "kernel32" fn WriteConsoleW(in_hConsoleOutput: HANDLE, in_lpBuffer: [*]const u8, in_nNumberOfCharsToWrite: DWORD, out_lpNumberOfCharsWritten: ?*DWORD, lpReserved: *void) callconv(std.os.windows.WINAPI) BOOL;
+    pub extern "kernel32" fn WriteConsoleW(in_hConsoleOutput: HANDLE, in_lpBuffer: [*]const u8, in_nNumberOfCharsToWrite: DWORD, out_lpNumberOfCharsWritten: ?*DWORD, lpReserved: ?*anyopaque) callconv(.winapi) BOOL;
 
     // https://learn.microsoft.com/en-us/windows/console/writeconsole
     //   A = ASCII
-    pub extern "kernel32" fn WriteConsoleA(in_hConsoleOutput: HANDLE, in_lpBuffer: [*]const u8, in_nNumberOfCharsToWrite: DWORD, out_lpNumberOfCharsWritten: ?*DWORD, lpReserved: *void) callconv(std.os.windows.WINAPI) BOOL;
+    pub extern "kernel32" fn WriteConsoleA(in_hConsoleOutput: HANDLE, in_lpBuffer: [*]const u8, in_nNumberOfCharsToWrite: DWORD, out_lpNumberOfCharsWritten: ?*DWORD, lpReserved: ?*anyopaque) callconv(.winapi) BOOL;
 };
 
 //LICENSE --

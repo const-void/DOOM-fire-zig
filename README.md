@@ -15,12 +15,14 @@ $ zig build run
 ...
 ```
 Build Requirements:
+* Zig 0.17.1 (pinned in `.zigversion`)
 * all platforms - libc
 * all platforms - x64 (for now)
 * windows - kernel32
 
 Merge Request (MR) Validation:
-* Each MR tested on MacOS Sequia 15.3 / M1 w/zig 0.14 on MacOS Kitty, VS Code, Alacritty.
+* Test each MR with the Zig version pinned in `.zigversion` on your available platforms and terminals.
+* Previous macOS testing used Sequoia 15.3 / M1 with Kitty, VS Code and Alacritty.
 * Many MR tested on Windows 10 / Intel, with Microsoft Terminal, CMD.EXE, PowerShell.
 * Linux tests are c/o the wonderful community who help identify...and repair...cross platform issues!
 
@@ -99,10 +101,8 @@ Repository intention is for compatibility with two zig versions - one branch for
 
 Back porting updates from DOOM-fire-zig / zig.current to zig.prior is too time consuming, the juice isn't worth the squeeze.   However, starting with zig-0.13,  repository philosophy will enable adventurers into this domain!   
 
-Branches are as follows:
-* zig-0.13: historical
-* zig-0.14: zig current version
-* zig-0.15: zig dev version
+This checkout targets Zig 0.17.1. Check `.zigversion` for the required compiler.
+Branches for earlier Zig versions remain available in the repository history.
 
 ### Ultimately, the time and attention of a contributor is most important.
 Always, submit a merge request and the particulars can be sorted out at the point of merge.  This whole repository is for fun, so the intention is to keep guidance light-weight and easy.
