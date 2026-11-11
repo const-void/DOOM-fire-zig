@@ -125,9 +125,8 @@ pub fn emit(s: []const u8) !void {
 
 // format a string then print
 pub fn emitFmt(comptime s: []const u8, args: anytype) !void {
-    const t = try std.fmt.allocPrint(allocator, s, args);
-    defer allocator.free(t);
-    try emit(t);
+    var buf: [1024]u8 = undefined;
+    try emit(try std.fmt.bufPrint(&buf, s, args));
 }
 
 ///////////////////////////////////
@@ -635,15 +634,15 @@ var t_dur: f64 = 0.0;
 var fps: f64 = 0.0;
 
 pub fn initBuf() !void {
-    //some lazy guesswork to make sure we have enough of a buffer to render DOOM fire.
+    //worst case per cell: a fg + bg color change and a pixel glyph; plus a newline per row.
     const px_char_sz = px.len;
     const px_color_sz = bg[LAST_COLOR].len + fg[LAST_COLOR].len;
     const px_sz = px_color_sz + px_char_sz;
-    const screen_sz: u64 = @as(u64, px_sz * term_sz.width * term_sz.width);
+    const screen_sz: u64 = @as(u64, (px_sz * term_sz.width + nl.len) * term_sz.height);
     const overflow_sz: u64 = px_char_sz * 100;
     const bs_sz: u64 = screen_sz + overflow_sz;
 
-    bs = try allocator.alloc(u8, bs_sz * 2);
+    bs = try allocator.alloc(u8, bs_sz);
     t_start = std.Io.Timestamp.now(io, .awake).toMilliseconds();
     resetBuf();
 }
@@ -656,11 +655,17 @@ pub fn resetBuf() void {
 
 //copy input string to buffer string
 pub fn drawBuf(s: []const u8) void {
-    for (s) |b| {
-        bs[bs_idx] = b;
-        bs_idx += 1;
-        bs_len += 1;
-    }
+    @memcpy(bs[bs_idx..][0..s.len], s);
+    bs_idx += s.len;
+    bs_len += s.len;
+}
+
+//set fg + bg in a single SGR sequence: ESC[38;5;<fg>;48;5;<bg>m
+pub fn drawBufFgBg(fg_idx: u8, bg_idx: u8) void {
+    const f = fg[fg_idx];
+    drawBuf(f[0 .. f.len - 1]); // drop trailing 'm'
+    drawBuf(";");
+    drawBuf(bg[bg_idx][csi.len..]); // drop leading ESC[
 }
 
 //print buffer to string...can be a decent amount of text!
@@ -750,8 +755,10 @@ pub fn showDoomFire() !void {
     var frame_y: u64 = 0;
     var px_hi: u8 = fire_black;
     var px_lo: u8 = fire_black;
-    var px_prev_hi = px_hi;
-    var px_prev_lo = px_lo;
+    var color_hi: u8 = 0; // terminal colors, not palette indexes (palette has duplicates)
+    var color_lo: u8 = 0;
+    var cur_fg: u8 = 0; // colors currently set on the terminal
+    var cur_bg: u8 = 0;
 
     //get to work!
     try initBuf();
@@ -795,6 +802,8 @@ pub fn showDoomFire() !void {
         //paint fire buf
         resetBuf();
         drawBuf(init_frame);
+        cur_fg = 0; // init_frame sets fg/bg to color 0
+        cur_bg = 0;
 
         // for each row
         frame_y = 0;
@@ -807,19 +816,29 @@ pub fn showDoomFire() !void {
                 // - "low" (next row => bg color)
                 px_hi = screen_buf[frame_y * FIRE_W + frame_x];
                 px_lo = screen_buf[(frame_y + 1) * FIRE_W + frame_x];
+                color_hi = fire_palette[px_hi];
+                color_lo = fire_palette[px_lo];
 
-                // only *update* color if prior color is actually diff
-                if (px_lo != px_prev_lo) {
-                    drawBuf(bg[fire_palette[px_lo]]);
+                // only *update* color if it actually differs from what the terminal has
+                if (color_hi == color_lo) {
+                    // both halves match: a space only needs the bg color (1 byte vs 3, fg untouched)
+                    if (color_lo != cur_bg) {
+                        drawBuf(bg[color_lo]);
+                        cur_bg = color_lo;
+                    }
+                    drawBuf(" ");
+                } else {
+                    if (color_hi != cur_fg and color_lo != cur_bg) {
+                        drawBufFgBg(color_hi, color_lo);
+                    } else if (color_hi != cur_fg) {
+                        drawBuf(fg[color_hi]);
+                    } else if (color_lo != cur_bg) {
+                        drawBuf(bg[color_lo]);
+                    }
+                    cur_fg = color_hi;
+                    cur_bg = color_lo;
+                    drawBuf(px);
                 }
-                if (px_hi != px_prev_hi) {
-                    drawBuf(fg[fire_palette[px_hi]]);
-                }
-                drawBuf(px);
-
-                //cache current colors
-                px_prev_hi = px_hi;
-                px_prev_lo = px_lo;
             }
             drawBuf(nl); //is this needed?
         }

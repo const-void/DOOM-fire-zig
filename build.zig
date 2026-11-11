@@ -10,10 +10,17 @@ pub fn build(b: *std.Build) void {
     // for restricting supported target set are available.
     const target = b.standardTargetOptions(.{});
 
-    // Standard optimization options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
-    // set a preferred release mode, allowing the user to decide how to optimize.
-    const optimize = b.standardOptimizeOption(.{});
+    // Optimization mode. DOOM fire is a terminal benchmark, so a plain `zig build`
+    // produces a fast binary; pass -Doptimize=debug (or --release=safe/small) to override.
+    const optimize: std.builtin.Optimize = b.option(
+        std.builtin.Optimize,
+        "optimize",
+        "Prioritize performance, safety, or binary size (default: fast)",
+    ) orelse switch (b.graph.release_mode) {
+        .off, .any, .fast => .fast,
+        .safe => .safe,
+        .small => .small,
+    };
 
     const exe = b.addExecutable(.{
         .name = "DOOM-fire",
