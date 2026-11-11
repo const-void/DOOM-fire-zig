@@ -8,8 +8,9 @@ const std = @import("std");
 
 const allocator = std.heap.page_allocator;
 
-var stdout: std.fs.File.Writer = undefined;
-var stdin: std.fs.File.Reader = undefined;
+var io: std.Io = undefined;
+var stdout: std.Io.File = undefined;
+var stdin: std.Io.File = undefined;
 var g_tty_win: win32.HANDLE = undefined;
 
 ///////////////////////////////////
@@ -91,6 +92,7 @@ var g_tty_win: win32.HANDLE = undefined;
 ///////////////////////////////////
 
 //// consts, vars, settings
+var prng: std.Random.DefaultPrng = undefined;
 var rand: std.Random = undefined;
 
 //// functions
@@ -98,9 +100,9 @@ var rand: std.Random = undefined;
 // seed & prep for rng
 pub fn initRNG() !void {
     //rnd setup -- https://ziglearn.org/chapter-2/#random-numbers
-    var prng = std.Random.DefaultPrng.init(blk: {
+    prng = std.Random.DefaultPrng.init(blk: {
         var seed: u64 = undefined;
-        try std.posix.getrandom(std.mem.asBytes(&seed));
+        io.random(std.mem.asBytes(&seed));
         break :blk seed;
     });
     rand = prng.random();
@@ -117,11 +119,7 @@ pub fn emit(s: []const u8) !void {
         }
         return;
     } else {
-        const sz = try stdout.write(s);
-        if (sz == 0) {
-            return;
-        } // cauze I c
-        return;
+        try stdout.writeStreamingAll(io, s);
     }
 }
 
@@ -217,7 +215,7 @@ pub fn getTermSzWin() !TermSz {
                                                     .srWindow = .{ .Left = 0, .Top = 0, .Right = 0, .Bottom = 0},
                                                     .dwMaximumWindowSize = .{.X = 0, .Y = 0} };
 
-    if (0 == win32.GetConsoleScreenBufferInfo(g_tty_win, &info)) switch (std.os.windows.kernel32.GetLastError()) {
+    if (0 == win32.GetConsoleScreenBufferInfo(g_tty_win, &info)) switch (std.os.windows.GetLastError()) {
         else => |e| return std.os.windows.unexpectedError(e),
     };
 
@@ -231,7 +229,7 @@ pub fn getTermSzLinux() !TermSz {
     //Linux-MacOS Case
 
     //base case - invoked from cmd line
-    const tty_nix = stdout.context.handle;
+    const tty_nix = stdout.handle;
     var winsz = std.c.winsize{ .col = 0, .row = 0, .xpixel = 0, .ypixel = 0 };
     const rv = std.c.ioctl(tty_nix, TIOCGWINSZ, @intFromPtr(&winsz));
     const err = std.posix.errno(rv);
@@ -239,8 +237,8 @@ pub fn getTermSzLinux() !TermSz {
     if (rv >= 0) {
         if (winsz.row == 0 or winsz.col == 0) { // ltty IOCTL failed ie in lldb
             //alt case - invoked from inside lldb
-            var lldb_tty_nix = try std.fs.cwd().openFile("/dev/tty", .{});
-            defer lldb_tty_nix.close();
+            var lldb_tty_nix = try std.Io.Dir.cwd().openFile(io, "/dev/tty", .{});
+            defer lldb_tty_nix.close(io);
 
             var lldb_winsz = std.c.winsize{ .col = 0, .row = 0, .xpixel = 0, .ypixel = 0 };
             const lldb_rv = std.c.ioctl(lldb_tty_nix.handle, TIOCGWINSZ, @intFromPtr(&lldb_winsz));
@@ -277,11 +275,11 @@ pub fn initTermWin() !void {
     // credit: n-prat ( https://github.com/const-void/DOOM-fire-zig/issues/17#issuecomment-2587481269 )
     var consoleMode: win32.DWORD = 0;
 
-    // pull tty from std.os.windows
-    g_tty_win = std.os.windows.GetStdHandle(win32.STD_OUTPUT_HANDLE) catch return std.os.windows.unexpectedError(std.os.windows.kernel32.GetLastError());
+    // pull tty from std.Io.File.stdout()
+    g_tty_win = stdout.handle;
 
     //get console mode
-    if (0 == win32.GetConsoleMode(g_tty_win, &consoleMode)) switch (std.os.windows.kernel32.GetLastError()) {
+    if (0 == win32.GetConsoleMode(g_tty_win, &consoleMode)) switch (std.os.windows.GetLastError()) {
         else => |e| return std.os.windows.unexpectedError(e),
     };
 
@@ -290,7 +288,7 @@ pub fn initTermWin() !void {
     //win32.ENABLE_PROCESSED_OUTPUT does not appear to be needed
 
     // apply updated consoleMode to console
-    if (0 == win32.SetConsoleMode(g_tty_win, consoleMode)) switch (std.os.windows.kernel32.GetLastError()) {
+    if (0 == win32.SetConsoleMode(g_tty_win, consoleMode)) switch (std.os.windows.GetLastError()) {
         else => |e| return std.os.windows.unexpectedError(e),
     };
 
@@ -299,7 +297,7 @@ pub fn initTermWin() !void {
     //   then, in complete, restore code page.
 
     // enable UTF8
-    if (0 == win32.SetConsoleOutputCP(win32.CP_UTF8)) switch (std.os.windows.kernel32.GetLastError()) {
+    if (0 == win32.SetConsoleOutputCP(win32.CP_UTF8)) switch (std.os.windows.GetLastError()) {
         else => |e| return std.os.windows.unexpectedError(e),
     };
 }
@@ -338,8 +336,8 @@ pub fn pause() !void {
 
     try emit(color_reset);
     try emit("Press return to continue...");
-    var b: u8 = undefined;
-    b = stdin.readByte() catch undefined;
+    var b: u8 = 0;
+    _ = stdin.readStreaming(io, &.{std.mem.asBytes(&b)}) catch 0;
 
     if (b == 'q') {
         //exit cleanly
@@ -576,11 +574,11 @@ pub fn scrollMarquee() !void {
             try emit(line_clear_to_eol);
             try emit(nl);
 
-            std.time.sleep(10 * std.time.ns_per_ms);
+            try io.sleep(.fromMilliseconds(10), .awake);
         }
 
         //let quote chill for a second
-        std.time.sleep(1000 * std.time.ns_per_ms);
+        try io.sleep(.fromMilliseconds(1000), .awake);
 
         //fade out
         fade_idx = fade_len - 1;
@@ -598,7 +596,7 @@ pub fn scrollMarquee() !void {
             try emit(txt[txt_idx * 2 + 1]);
             try emit(line_clear_to_eol);
             try emit(nl);
-            std.time.sleep(10 * std.time.ns_per_ms);
+            try io.sleep(.fromMilliseconds(10), .awake);
         }
         try emit(nl);
     }
@@ -646,7 +644,7 @@ pub fn initBuf() !void {
     const bs_sz: u64 = screen_sz + overflow_sz;
 
     bs = try allocator.alloc(u8, bs_sz * 2);
-    t_start = std.time.milliTimestamp();
+    t_start = std.Io.Timestamp.now(io, .awake).toMilliseconds();
     resetBuf();
 }
 
@@ -668,7 +666,7 @@ pub fn drawBuf(s: []const u8) void {
 //print buffer to string...can be a decent amount of text!
 pub fn paintBuf() !void {
     try emit(bs[0 .. bs_len - 1]);
-    t_now = std.time.milliTimestamp();
+    t_now = std.Io.Timestamp.now(io, .awake).toMilliseconds();
     bs_frame_tic += 1;
     if (bs_sz_min == 0) {
         //first frame
@@ -689,7 +687,7 @@ pub fn paintBuf() !void {
     fps = @as(f64, @floatFromInt(bs_frame_tic)) / t_dur;
 
     try emit(fg[0]);
-    try emitFmt("mem: {s:.2} min / {s:.2} avg / {s:.2} max [ {d:.2} fps ]", .{ std.fmt.fmtIntSizeBin(bs_sz_min), std.fmt.fmtIntSizeBin(bs_sz_avg), std.fmt.fmtIntSizeBin(bs_sz_max), fps });
+    try emitFmt("mem: {Bi:.2} min / {Bi:.2} avg / {Bi:.2} max [ {d:.2} fps ]", .{ bs_sz_min, bs_sz_avg, bs_sz_max, fps });
 }
 
 // initBuf(); defer freeBuf();
@@ -834,9 +832,10 @@ pub fn showDoomFire() !void {
 // main
 ///////////////////////////////////
 
-pub fn main() anyerror!void {
-    stdout = std.io.getStdOut().writer();
-    stdin = std.io.getStdIn().reader();
+pub fn main(init: std.process.Init) anyerror!void {
+    io = init.io;
+    stdout = std.Io.File.stdout();
+    stdin = std.Io.File.stdin();
 
     try initTerm();
     defer complete() catch {};
@@ -854,7 +853,7 @@ const win32 = struct {
     // define MS WIN base types in zig terms
     //    part of std.os.windows
     pub const WORD: type = std.os.windows.WORD; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/f8573df3-a44a-4a50-b070-ac4c3aa78e3c
-    pub const BOOL: type = std.os.windows.BOOL; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/9d81be47-232e-42cf-8f0d-7a3b29bf2eb2
+    pub const BOOL: type = c_int; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/9d81be47-232e-42cf-8f0d-7a3b29bf2eb2
     pub const HANDLE: type = std.os.windows.HANDLE; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/929187f0-f25c-4b05-9497-16b066d8a912
     pub const SHORT: type = std.os.windows.SHORT; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/47b1e7d6-b5a1-48c3-986e-b5e5eb3f06d2
     pub const DWORD: type = std.os.windows.DWORD; // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/262627d8-3418-4627-9218-4ffe110850b2
@@ -876,13 +875,6 @@ const win32 = struct {
     // https://learn.microsoft.com/en-us/windows/apps/design/globalizing/use-utf8-code-page
     pub const CP_UTF8: UINT = 65001;
     pub const CP_ANSI: UINT = 1252;
-
-    // https://learn.microsoft.com/en-us/windows/console/getstdhandle
-    //   part of std.os.windows
-    //   for use with https://ziglang.org/documentation/master/std/#std.os.windows.GetStdHandle
-    pub const STD_INPUT_HANDLE = std.os.windows.STD_INPUT_HANDLE;
-    pub const STD_OUTPUT_HANDLE = std.os.windows.STD_OUTPUT_HANDLE;
-    pub const STD_ERR_HANDLE = std.os.windows.STD_ERROR_HANDLE;
 
     // --------------
     // define MS WIN structures in terms of MS WIN base types
@@ -917,24 +909,24 @@ const win32 = struct {
     pub extern "kernel32" fn GetConsoleScreenBufferInfo(
         hConsoleOutput: ?HANDLE,
         lpConsoleScreenBufferInfo: ?*CONSOLE_SCREEN_BUFFER_INFO,
-    ) callconv(std.os.windows.WINAPI) BOOL;
+    ) callconv(.winapi) BOOL;
 
     // https://learn.microsoft.com/en-us/windows/console/getconsolemode
-    pub extern "kernel32" fn GetConsoleMode(hConsoleOutput: ?HANDLE, lpOutMode: ?*DWORD) callconv(std.os.windows.WINAPI) BOOL;
+    pub extern "kernel32" fn GetConsoleMode(hConsoleOutput: ?HANDLE, lpOutMode: ?*DWORD) callconv(.winapi) BOOL;
 
     // https://learn.microsoft.com/en-us/windows/console/setconsolemode
-    pub extern "kernel32" fn SetConsoleMode(in_hConsoleHandle: HANDLE, in_Mode: DWORD) callconv(std.os.windows.WINAPI) BOOL;
+    pub extern "kernel32" fn SetConsoleMode(in_hConsoleHandle: HANDLE, in_Mode: DWORD) callconv(.winapi) BOOL;
 
     // https://learn.microsoft.com/en-us/windows/console/setconsoleoutputcp
-    pub extern "kernel32" fn SetConsoleOutputCP(in_wCodePageID: UINT) callconv(std.os.windows.WINAPI) BOOL;
+    pub extern "kernel32" fn SetConsoleOutputCP(in_wCodePageID: UINT) callconv(.winapi) BOOL;
 
     // https://learn.microsoft.com/en-us/windows/console/writeconsole
     //   W = Wide = UTF8
-    pub extern "kernel32" fn WriteConsoleW(in_hConsoleOutput: HANDLE, in_lpBuffer: [*]const u8, in_nNumberOfCharsToWrite: DWORD, out_lpNumberOfCharsWritten: ?*DWORD, lpReserved: *void) callconv(std.os.windows.WINAPI) BOOL;
+    pub extern "kernel32" fn WriteConsoleW(in_hConsoleOutput: HANDLE, in_lpBuffer: [*]const u8, in_nNumberOfCharsToWrite: DWORD, out_lpNumberOfCharsWritten: ?*DWORD, lpReserved: *void) callconv(.winapi) BOOL;
 
     // https://learn.microsoft.com/en-us/windows/console/writeconsole
     //   A = ASCII
-    pub extern "kernel32" fn WriteConsoleA(in_hConsoleOutput: HANDLE, in_lpBuffer: [*]const u8, in_nNumberOfCharsToWrite: DWORD, out_lpNumberOfCharsWritten: ?*DWORD, lpReserved: *void) callconv(std.os.windows.WINAPI) BOOL;
+    pub extern "kernel32" fn WriteConsoleA(in_hConsoleOutput: HANDLE, in_lpBuffer: [*]const u8, in_nNumberOfCharsToWrite: DWORD, out_lpNumberOfCharsWritten: ?*DWORD, lpReserved: *void) callconv(.winapi) BOOL;
 };
 
 //LICENSE --
