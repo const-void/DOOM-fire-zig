@@ -670,7 +670,7 @@ pub fn drawBufFgBg(fg_idx: u8, bg_idx: u8) void {
 
 //print buffer to string...can be a decent amount of text!
 pub fn paintBuf() !void {
-    try emit(bs[0 .. bs_len - 1]);
+    try emit(bs[0..bs_len]);
     t_now = std.Io.Timestamp.now(io, .awake).toMilliseconds();
     bs_frame_tic += 1;
     if (bs_sz_min == 0) {
